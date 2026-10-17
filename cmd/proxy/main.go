@@ -43,18 +43,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Start data plane listener
+	if err := dp.Start(); err != nil {
+		logger.Error("Failed to start data plane listener", "error", err)
+		os.Exit(1)
+	}
+
 	go func() {
 		if err := m.Start(); err != nil {
 			logger.Debug("Metrics server stopped", "error", err)
 		}
 	}()
 
-	logger.Info("Proxy daemon initialized successfully in Stage 1 scaffolding mode")
+	logger.Info("Proxy daemon running and ready for traffic", "mode", cfg.Mode)
 
 	<-ctx.Done()
 	logger.Info("Shutdown signal received, shutting down gracefully...")
 	_ = cp
-	_ = dp
+	_ = dp.Close()
 	_ = m.Shutdown(context.Background())
 	logger.Info("Go-Chaos-Proxy terminated cleanly")
 }
