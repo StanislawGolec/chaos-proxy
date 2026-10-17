@@ -1,4 +1,4 @@
-module github.com/StanislawGolec/Go-Chaos-Proxy
+module github.com/StanislawGolec/go-chaos-proxy
 
 go 1.23.0
 

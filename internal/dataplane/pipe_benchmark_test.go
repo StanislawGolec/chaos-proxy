@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
 )
 
 // BenchmarkBufferPoolGetPut measures single-threaded allocation reuse efficiency.

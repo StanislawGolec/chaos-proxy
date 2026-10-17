@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/dataplane"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
-	chaosv1 "github.com/StanislawGolec/Go-Chaos-Proxy/pkg/proto/v1"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/dataplane"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/metrics"
+	chaosv1 "github.com/StanislawGolec/go-chaos-proxy/pkg/proto/v1"
 	"google.golang.org/grpc"
 )
 

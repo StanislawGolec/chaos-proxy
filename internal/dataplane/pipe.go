@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/pkg/protocol"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/metrics"
+	"github.com/StanislawGolec/go-chaos-proxy/pkg/protocol"
 )
 
 // Pipe coordinates bi-directional streaming between a client connection and an upstream server connection.

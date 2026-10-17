@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/metrics"
 )
 
 // DataPlane manages the transparent TCP proxy listener, tunnel lifecycle, and active connections.

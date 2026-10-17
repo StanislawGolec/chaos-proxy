@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
 )
 
 func newTestMetrics() (*Metrics, *config.Config) {
