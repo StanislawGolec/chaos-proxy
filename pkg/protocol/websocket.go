@@ -140,10 +140,26 @@ func EncodeFrame(f *Frame) []byte {
 }
 
 // UnmaskInPlace applies the 4-byte XOR masking key directly to the payload slice without heap allocation.
+// Employs a 64-bit word loop for gigabytes-per-second memory throughput.
 func UnmaskInPlace(payload []byte, maskKey [4]byte) {
 	n := len(payload)
-	// Fast word loop when len >= 8 could be applied; simple direct loop is zero-alloc
-	for i := 0; i < n; i++ {
+	if n == 0 {
+		return
+	}
+
+	// Construct 64-bit repeated mask using register bit shifts (zero heap allocation)
+	m0, m1, m2, m3 := uint64(maskKey[0]), uint64(maskKey[1]), uint64(maskKey[2]), uint64(maskKey[3])
+	mask32 := m0 | (m1 << 8) | (m2 << 16) | (m3 << 24)
+	mask64 := mask32 | (mask32 << 32)
+
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		w := binary.LittleEndian.Uint64(payload[i : i+8])
+		binary.LittleEndian.PutUint64(payload[i:i+8], w^mask64)
+	}
+
+	// Residual byte loop
+	for ; i < n; i++ {
 		payload[i] ^= maskKey[i%4]
 	}
 }

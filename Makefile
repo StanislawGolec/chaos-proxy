@@ -1,4 +1,4 @@
-.PHONY: all build test race bench proto clean lint run
+.PHONY: all build test race bench bench-cpu bench-mem profile proto clean lint run
 
 BINARY_DIR := bin
 PROXY_BIN := $(BINARY_DIR)/proxy
@@ -18,7 +18,16 @@ race:
 	go test -v -race ./...
 
 bench:
-	go test -v -bench=. -benchmem ./...
+	go test -v -run=^$$ -bench=. -benchmem ./internal/dataplane ./pkg/protocol
+
+bench-cpu:
+	go test -run=^$$ -bench=. -benchmem -cpuprofile=cpu.pprof ./internal/dataplane ./pkg/protocol
+
+bench-mem:
+	go test -run=^$$ -bench=. -benchmem -memprofile=mem.pprof ./internal/dataplane ./pkg/protocol
+
+profile:
+	go tool pprof -http=:8080 cpu.pprof
 
 lint:
 	golangci-lint run ./...
