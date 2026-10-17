@@ -24,15 +24,20 @@ func NewEngine(rules *RuleContainer) *Engine {
 	}
 }
 
+var defaultActionPass = &Action{
+	Type:   ActionPass,
+	Reason: "passed",
+}
+
 // Process evaluates all active fault interceptors sequentially for an in-flight packet.
 func (e *Engine) Process(dir Direction, payload []byte) *Action {
 	if e == nil || e.rules == nil {
-		return &Action{Type: ActionPass}
+		return defaultActionPass
 	}
 
 	rules := e.rules.Load()
 	if rules == nil {
-		return &Action{Type: ActionPass}
+		return defaultActionPass
 	}
 
 	// 1. Connection Disconnect Interceptor
@@ -100,10 +105,7 @@ func (e *Engine) Process(dir Direction, payload []byte) *Action {
 		}
 	}
 
-	return &Action{
-		Type:   ActionPass,
-		Reason: "passed",
-	}
+	return defaultActionPass
 }
 
 // getOrCreateBucket retrieves or initializes the direction's token bucket.
