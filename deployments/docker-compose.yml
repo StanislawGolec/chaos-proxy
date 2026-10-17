@@ -1,0 +1,77 @@
+version: "3.8"
+
+services:
+  go-chaos-proxy:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: go-chaos-proxy
+    restart: unless-stopped
+    ports:
+      - "8090:8090" # L4/L7 Transparent Data Plane Proxy
+      - "9090:9090" # gRPC Control Plane
+      - "9091:9091" # Prometheus Metrics & Health Plane
+    command:
+      - "--listen=:8090"
+      - "--target=mock-server:8080"
+      - "--grpc=:9090"
+      - "--metrics=:9091"
+      - "--mode=l7"
+      - "--log-level=debug"
+    depends_on:
+      - mock-server
+    networks:
+      - chaos-net
+
+  mock-server:
+    image: python:3.11-alpine
+    container_name: mock-ultimo-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    command:
+      - "python3"
+      - "-u"
+      - "-c"
+      - |
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(('0.0.0.0', 8080))
+        s.listen(128)
+        print('[Mock Ultimo Server] Listening on 0.0.0.0:8080', flush=True)
+        while True:
+            conn, addr = s.accept()
+            try:
+                data = conn.recv(4096)
+                if data:
+                    print(f'[Mock Server] Received: {data}', flush=True)
+                    conn.sendall(b'WELCOME\nROOM_STATUS 4\nTOP_CARD RED_7\n')
+            except Exception as e:
+                print(f'[Mock Server] Error: {e}', flush=True)
+            finally:
+                conn.close()
+    networks:
+      - chaos-net
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: chaos-prometheus
+    restart: unless-stopped
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    depends_on:
+      - go-chaos-proxy
+    networks:
+      - chaos-net
+
+networks:
+  chaos-net:
+    driver: bridge

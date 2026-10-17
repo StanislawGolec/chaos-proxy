@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "go-chaos-proxy"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["go-chaos-proxy:9091"]
+        labels:
+          environment: "local-chaos"
+          tier: "data-plane"
+
+  - job_name: "ultimo-server"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["ultimo-server:8080"]
+        labels:
+          environment: "local-chaos"
+          tier: "game-server"

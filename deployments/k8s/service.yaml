@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-chaos-proxy
+  labels:
+    app.kubernetes.io/name: go-chaos-proxy
+    app.kubernetes.io/component: data-plane-proxy
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "9091"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: go-chaos-proxy
+  ports:
+    - name: data-plane
+      port: 8090
+      targetPort: 8090
+      protocol: TCP
+    - name: control-plane
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+    - name: metrics
+      port: 9091
+      targetPort: 9091
+      protocol: TCP

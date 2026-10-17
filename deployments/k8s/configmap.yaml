@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: go-chaos-proxy-config
+  labels:
+    app.kubernetes.io/name: go-chaos-proxy
+    app.kubernetes.io/component: data-plane-proxy
+data:
+  upstream.target: "ultimo-server.ultimo.svc.cluster.local:8080"
+  proxy.mode: "l7"
+  log.level: "info"
+  log.format: "json"
+  buffer.size: "32768"
