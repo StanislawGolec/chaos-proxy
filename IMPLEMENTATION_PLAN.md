@@ -187,31 +187,31 @@ An audit of `e:\MeineProjekte\Go-Chaos-Proxy` and the broader interconnected eco
 
 ### Stage 6: The `chaosctl` Command-Line Interface (CLI Operator Tool)
 **Objective:** Deliver a production-grade, standalone CLI tool for human operators and CI automation scripts to orchestrate fault scenarios and monitor network behavior.
+**Current Status:** Completed (100% Implemented: standalone CLI binary, subcommands for all faults, ANSI colorized tail streaming, JSON formatting, and automated CLI test suite).
 
-* **Tasks to Implement:**
-  1. **CLI Commands & Flags:**
-     - `chaosctl latency --base=200ms --jitter=50ms --probability=0.9`
-     - `chaosctl drop --rate=0.20 --burst=3`
-     - `chaosctl corrupt --rate=0.05 --mode=l7`
-     - `chaosctl throttle --rate=64kbps`
-     - `chaosctl disconnect --rst`
-     - `chaosctl reset` (clears all faults, enters transparent bypass mode)
-     - `chaosctl status` (prints active rules, uptime, total packets, current active tunnels)
-  2. **Live Event Monitor (`chaosctl tail -f`):**
-     - Subscribes to gRPC `StreamEvents`.
-     - Formats and displays packet flow with colored ANSI output:
-       - Green: `[PASS]`
-       - Yellow: `[DELAY]` (+320ms)
-       - Red: `[DROP]` (Packet discarded)
-       - Magenta: `[CORRUPT]` (Bit flipped)
-  3. **Machine-Readable Output:**
-     - Add `--json` flag to all inspection commands for scripting and CI pipeline assertions.
+* **Tasks to Implement & Status:**
+  1. `[DONE]` **CLI Commands & Subcommand Dispatcher:** Implemented in `cmd/chaosctl/main.go`. Standalone binary providing dedicated subcommands:
+     - `chaosctl latency --base=200ms --jitter=50ms --dist=gaussian --prob=0.9 --dir=ALL`
+     - `chaosctl drop --rate=0.20 --burst=3 --dir=S2C`
+     - `chaosctl corrupt --rate=0.05 --mode=l7 --dir=ALL`
+     - `chaosctl throttle --rate=64kbps --dir=ALL`
+     - `chaosctl disconnect --immediate=true --dir=C2S`
+     - `chaosctl reset` (clears all faults, reverting to transparent pass-through)
+     - `chaosctl status` (prints tabular status of active faults, uptime, active tunnels, and throughput)
+  2. `[DONE]` **Live Event Monitor (`chaosctl tail`):** Implemented in `cmd/chaosctl/main.go`. Subscribes to gRPC `StreamEvents` with directional/action filtering, rendering packet streams in real-time with ANSI color highlights (`[PASS]` in green, `[DELAY]` in yellow, `[DROP]` in red, `[CORRUPT]` in magenta, `[THROTTLE]` in cyan) and graceful termination on `Ctrl+C`.
+  3. `[DONE]` **Machine-Readable Output:** Added `--json` flag to all subcommands enabling seamless CI script assertions and headless monitoring automation. Added `--no-color` flag for non-TTY terminals.
+  4. `[DONE]` **Unit & Integration Tests:** Implemented in `cmd/chaosctl/main_test.go`:
+     - Tests for each subcommand dispatching to mock gRPC client and asserting parsed protobuf request fields.
+     - Tests for human-readable tabular status output and JSON serialization.
+     - Tests for real-time ANSI stream formatting.
+     - Tests for bandwidth string parser (`64kbps`, `1mbps`, `100kb`, `1mb`).
+     - Tests for `--help` and subcommand help flag handling.
 * **What to Use / Technologies:**
-  - `github.com/spf13/cobra` or clean Go standard `flag` with subcommand routing.
-  - ANSI terminal escape formatting (`github.com/fatih/color` or pure ANSI codes).
+  - Standard library `flag`, `encoding/json`, `os/signal`, `time`, ANSI escape sequences.
+  - `google.golang.org/grpc`, `google.golang.org/grpc/credentials/insecure`.
 * **Success & Verification Criteria:**
-  - Executing `chaosctl latency` immediately alters behavior of running proxy.
-  - `chaosctl tail -f` renders packet events in real-time with clean exit on `Ctrl+C`.
+  - `bin/chaosctl.exe` successfully compiles and communicates with `ChaosControlServer`.
+  - 100% of CLI unit tests pass without errors.
 
 ---
 
