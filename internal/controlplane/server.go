@@ -11,6 +11,7 @@ import (
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/dataplane"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
 	chaosv1 "github.com/StanislawGolec/Go-Chaos-Proxy/pkg/proto/v1"
 	"google.golang.org/grpc"
 )
@@ -29,10 +30,11 @@ type Server struct {
 	mu          sync.RWMutex
 	logger      *slog.Logger
 	closed      bool
+	metrics     *metrics.Metrics
 }
 
 // NewServer initializes a new Server.
-func NewServer(cfg *config.Config, rules *engine.RuleContainer, dp *dataplane.DataPlane) *Server {
+func NewServer(cfg *config.Config, rules *engine.RuleContainer, dp *dataplane.DataPlane, m ...*metrics.Metrics) *Server {
 	s := &Server{
 		cfg:         cfg,
 		rules:       rules,
@@ -42,9 +44,17 @@ func NewServer(cfg *config.Config, rules *engine.RuleContainer, dp *dataplane.Da
 		startTime:   time.Now(),
 		logger:      slog.Default().With("component", "controlplane"),
 	}
+	if len(m) > 0 && m[0] != nil {
+		s.metrics = m[0]
+	}
 
 	chaosv1.RegisterChaosControlServer(s.grpcSrv, s)
 	return s
+}
+
+// SetMetrics configures the Prometheus metrics collector for the control plane.
+func (s *Server) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
 }
 
 // Start binds the gRPC listener and serves incoming administrative calls.
@@ -113,6 +123,9 @@ func (s *Server) SetLatency(ctx context.Context, in *chaosv1.LatencyConfig) (*ch
 	next := *current
 	next.Latency = rule
 	s.rules.Store(&next)
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 
 	s.logger.Info("Updated latency rule via gRPC",
 		"base_ms", in.BaseMs,
@@ -149,6 +162,9 @@ func (s *Server) SetPacketDrop(ctx context.Context, in *chaosv1.DropConfig) (*ch
 	next := *current
 	next.Drop = rule
 	s.rules.Store(&next)
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 
 	s.logger.Info("Updated packet drop rule via gRPC",
 		"ratio", in.DropRatio,
@@ -183,6 +199,9 @@ func (s *Server) SetCorruption(ctx context.Context, in *chaosv1.CorruptionConfig
 	next := *current
 	next.Corruption = rule
 	s.rules.Store(&next)
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 
 	s.logger.Info("Updated payload corruption rule via gRPC",
 		"rate", in.BitFlipRate,
@@ -216,6 +235,9 @@ func (s *Server) SetThrottle(ctx context.Context, in *chaosv1.ThrottleConfig) (*
 	next := *current
 	next.Throttle = rule
 	s.rules.Store(&next)
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 
 	s.logger.Info("Updated bandwidth throttle via gRPC",
 		"bytes_per_sec", in.BytesPerSecond,
@@ -249,6 +271,9 @@ func (s *Server) TriggerDisconnect(ctx context.Context, in *chaosv1.DisconnectCo
 	next := *current
 	next.Disconnect = rule
 	s.rules.Store(&next)
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 
 	s.logger.Info("Triggered disconnect command via gRPC",
 		"tcp_reset", in.TcpReset,
@@ -265,6 +290,9 @@ func (s *Server) TriggerDisconnect(ctx context.Context, in *chaosv1.DisconnectCo
 // ResetAllFaults removes all active chaos rules, restoring transparent proxying.
 func (s *Server) ResetAllFaults(ctx context.Context, in *chaosv1.Empty) (*chaosv1.Response, error) {
 	s.rules.Reset()
+	if s.metrics != nil {
+		s.metrics.IncRuleUpdates()
+	}
 	s.logger.Info("All fault rules reset to transparent pass-through via gRPC")
 	return &chaosv1.Response{
 		Success: true,
