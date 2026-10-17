@@ -111,6 +111,7 @@ func (dp *DataPlane) handleConnection(clientConn net.Conn) {
 		serverConn,
 		dp.pool,
 		dp.rules,
+		dp.cfg.Mode,
 		&dp.totalPkts,
 		&dp.totalBytes,
 		dp.logger,
