@@ -22,6 +22,7 @@ type Pipe struct {
 	serverConn net.Conn
 	pool       *BufferPool
 	rules      *engine.RuleContainer
+	engine     *engine.Engine
 	mode       config.Mode
 	totalPkts  *atomic.Uint64
 	totalBytes *atomic.Uint64
@@ -37,6 +38,7 @@ func NewPipe(
 	serverConn net.Conn,
 	pool *BufferPool,
 	rules *engine.RuleContainer,
+	eng *engine.Engine,
 	mode config.Mode,
 	totalPkts *atomic.Uint64,
 	totalBytes *atomic.Uint64,
@@ -52,6 +54,7 @@ func NewPipe(
 		serverConn: serverConn,
 		pool:       pool,
 		rules:      rules,
+		engine:     eng,
 		mode:       mode,
 		totalPkts:  totalPkts,
 		totalBytes: totalBytes,
@@ -121,7 +124,7 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 				}
 				if action.Type == engine.ActionDisconnect {
 					p.logger.Debug("Disconnecting pipe by chaos rule", "direction", dir)
-					p.Close()
+					p.closeWithRST()
 					return
 				}
 				if action.Type == engine.ActionDelay && action.Delay > 0 {
@@ -159,28 +162,38 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 
 // evaluateFault checks active rules for a given direction and optional L7 inspection metadata.
 func (p *Pipe) evaluateFault(dir engine.Direction, payload []byte, inspectRes *protocol.InspectionResult) *engine.Action {
-	if p.rules == nil {
+	if p.engine == nil {
 		return nil
 	}
-	rules := p.rules.Load()
-	if rules == nil {
-		return nil
+	action := p.engine.Process(dir, payload)
+	if action != nil && action.Type != engine.ActionPass {
+		return action
 	}
-
-	// Disconnect rule check
-	if rules.Disconnect != nil && (rules.Disconnect.Direction == engine.DirectionAll || rules.Disconnect.Direction == dir) {
-		return &engine.Action{Type: engine.ActionDisconnect}
-	}
-
-	// Drop rule check
-	if rules.Drop != nil && (rules.Drop.Direction == engine.DirectionAll || rules.Drop.Direction == dir) {
-		if rules.Drop.DropRatio > 0 {
-			// Basic probabilistic evaluation (expanded in Stage 4)
-			// Will be coordinated with the full statistical engine
-		}
-	}
-
 	return nil
+}
+
+// closeWithRST terminates connections via hardware TCP RST if configured, else clean close.
+func (p *Pipe) closeWithRST() {
+	p.closeOnce.Do(func() {
+		p.closed.Store(true)
+		var isRST bool
+		if p.rules != nil {
+			rules := p.rules.Load()
+			isRST = rules != nil && rules.Disconnect != nil && rules.Disconnect.TCPReset
+		}
+
+		if isRST {
+			_ = engine.ApplyTCPReset(p.clientConn)
+			_ = engine.ApplyTCPReset(p.serverConn)
+		} else {
+			if p.clientConn != nil {
+				_ = p.clientConn.Close()
+			}
+			if p.serverConn != nil {
+				_ = p.serverConn.Close()
+			}
+		}
+	})
 }
 
 // propagateHalfClose safely signals EOF on the destination TCP connection without tearing down reads.

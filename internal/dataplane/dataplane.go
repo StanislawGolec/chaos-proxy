@@ -17,6 +17,7 @@ import (
 type DataPlane struct {
 	cfg        *config.Config
 	rules      *engine.RuleContainer
+	engine     *engine.Engine
 	pool       *BufferPool
 	listener   net.Listener
 	activeConn atomic.Int64
@@ -38,6 +39,7 @@ func NewDataPlane(cfg *config.Config, rules *engine.RuleContainer) *DataPlane {
 	return &DataPlane{
 		cfg:     cfg,
 		rules:   rules,
+		engine:  engine.NewEngine(rules),
 		pool:    NewBufferPool(cfg.BufferSize),
 		tunnels: make(map[string]*Pipe),
 		ctx:     ctx,
@@ -111,6 +113,7 @@ func (dp *DataPlane) handleConnection(clientConn net.Conn) {
 		serverConn,
 		dp.pool,
 		dp.rules,
+		dp.engine,
 		dp.cfg.Mode,
 		&dp.totalPkts,
 		&dp.totalBytes,
