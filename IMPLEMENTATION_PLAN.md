@@ -1,7 +1,8 @@
 # Go-Chaos-Proxy: Architectural Analysis & Phased Implementation Plan
 
 > **Target Recruiter Focus:** Google Warsaw (Cloud Run, Kubernetes / Borg, Cloud Networking & SRE, Go Language Teams) & Quantitative Trading Firms (High-throughput systems, low latency, zero-allocation data paths).  
-> **Role in Ecosystem:** Sits transparently between **Ultimo-Mobile** (Kotlin Android client) / **Ultimo-MARL** (Python PyTorch bot) and **Ultimo** (Java 21 Loom authoritative game server), injecting real-world network anomalies (jitter, packet loss, TCP resets, frame mutation) to validate distributed fault tolerance.
+> **Role in Ecosystem:** Sits transparently between **Ultimo-Mobile** (Kotlin Android client) / **Ultimo-MARL** (Python PyTorch bot) and **Ultimo** (Java 21 Loom authoritative game server), injecting real-world network anomalies (jitter, packet loss, TCP resets, frame mutation) to validate distributed fault tolerance.  
+> **Specialized Skills Available:** Consult `.agents/skills/chaos-grpc-generator/SKILL.md` for Protocol Buffers, gRPC control plane, and chaos fault injection procedures.
 
 ---
 
@@ -71,10 +72,7 @@ An audit of `e:\MeineProjekte\Go-Chaos-Proxy` and the broader interconnected eco
   4. `[DONE]` **Build automated code generation scripts & Makefile:**
      - `scripts/generate_proto.ps1` (PowerShell) and `scripts/generate_proto.sh` (Bash).
      - Standard `Makefile` with targets: `all`, `build`, `test`, `race`, `bench`, `proto`, `clean`, `run`.
-  5. `[PARTIALLY DONE]` **Protobuf Stubs Binary Generation (`pkg/proto/v1/chaos.pb.go`, `chaos_grpc.pb.go`):**
-     - *Status:* The `.proto` specification and generator scripts (`scripts/generate_proto.*`) are 100% complete. However, compiling `.pb.go` stubs locally requires `protoc` and `protoc-gen-go` binaries in the local Windows environment.
-     - *Issue:* Host environment lacks `protoc` in `PATH` without elevated installation.
-     - *Rescheduled Target:* This will be executed in **Stage 5 (Control Plane gRPC Server Implementation)** either via containerized build or pre-compiled Protobuf stubs.
+  5. `[DONE]` **Protobuf Stubs Generation (`pkg/proto/v1/chaos.pb.go`, `chaos_grpc.pb.go`):** Compiled canonical `api/proto/v1/chaos.proto` into Go structs and gRPC client/server interfaces using `protoc` 29.3, `protoc-gen-go`, and `protoc-gen-go-grpc`. Verified 100% interoperability with gRPC transport.
   6. `[DONE]` **Configure centralized structured logging via `log/slog`:** Context-aware logging supporting JSON and Text handlers with log level control and tunnel context propagation.
   7. `[DONE]` **Unit tests:** Created `internal/config/config_test.go` verifying flag parsing, default values, error validation, and slog output.
 * **What to Use / Technologies:**
@@ -170,23 +168,20 @@ An audit of `e:\MeineProjekte\Go-Chaos-Proxy` and the broader interconnected eco
 
 ### Stage 5: Control Plane (gRPC Server, Dynamic Atomic Swaps & Event Streaming)
 **Objective:** Implement the gRPC administrative service to dynamically update fault injection rules at runtime without connection restarts, and stream real-time packet telemetry.
+**Current Status:** Completed (100% Implemented: Protobuf stubs, gRPC server, atomic rule updates, event broadcaster, and integration tests).
 
-* **Tasks to Implement:**
-  1. **gRPC Server Implementation (`ChaosControlService`):**
-     - Listen on dedicated management port (default `:9090`).
-     - Implement RPCs: `SetLatency`, `SetPacketDrop`, `SetCorruption`, `TriggerDisconnect`, `ResetAllFaults`, `GetStatus`.
-  2. **Lock-Free Atomic Rule Configuration:**
-     - Store current active rules in `atomic.Pointer[FaultConfig]`.
-     - Data plane reads config via atomic pointer load (zero mutex contention, zero read locks on packet hot path).
-     - Control plane RPCs atomically store newly allocated configuration.
-  3. **Bi-directional Telemetry Stream (`StreamEvents`):**
-     - Fan-out pub/sub broadcaster: data plane emits `PacketEvent` (timestamp, direction `C2S`/`S2C`, byte count, action `PASSED`/`DELAYED`/`DROPPED`/`MUTATED`).
-     - Stream subscriber channels with non-blocking drops (`select { case ch <- event: default: }`) to guarantee slow gRPC clients never slow down the proxy data plane.
+* **Tasks to Implement & Status:**
+  1. `[DONE]` **gRPC Server Implementation (`ChaosControlServer`):** Implemented in `internal/controlplane/server.go`. Listens on `:9090`, implements all RPC endpoints: `SetLatency`, `SetPacketDrop`, `SetCorruption`, `SetThrottle`, `TriggerDisconnect`, `ResetAllFaults`, `GetStatus`, and `StreamEvents`.
+  2. `[DONE]` **Lock-Free Atomic Rule Configuration:** Implemented in `internal/engine/types.go` and `internal/controlplane/server.go`. Uses `atomic.Pointer[RuleSet]` (`rules.Store()`, `rules.Load()`) ensuring zero mutex contention or blocking on the data plane packet hot paths during dynamic rule updates.
+  3. `[DONE]` **Bi-directional Telemetry Stream (`StreamEvents`):** Implemented in `internal/controlplane/broadcaster.go`. Thread-safe pub/sub fan-out broadcaster with buffered subscriber channels and non-blocking drops (`select { case ch <- event: default: }`), guaranteeing slow monitoring clients never block proxy forwarding.
+  4. `[DONE]` **Unit & Integration Tests:** Implemented in `internal/controlplane/server_test.go`:
+     - `TestControlPlaneRPCs`: Tests in-memory gRPC client connecting over `bufconn`, mutates latency, drop, corruption, throttle, asserts status response, resets all faults, and verifies atomic consistency.
+     - `TestBroadcasterFanOut`: Verifies fan-out delivery across multiple concurrent streaming subscribers and proper channel deregistration on exit.
 * **What to Use / Technologies:**
-  - `google.golang.org/grpc`, `sync/atomic`, Go channels.
+  - `google.golang.org/grpc`, `google.golang.org/protobuf`, `sync/atomic`, Go buffered channels, `google.golang.org/grpc/test/bufconn`.
 * **Success & Verification Criteria:**
-  - Changing rules via gRPC takes effect in $<1\text{ms}$ on active data plane connections without dropping sockets.
-  - Streaming events reliably received by multiple concurrent subscribers.
+  - Dynamic rule changes via gRPC take effect instantaneously (<1ms) on active connections without restarts.
+  - Telemetry event streaming operates asynchronously without starving data plane forwarding.
 
 ---
 

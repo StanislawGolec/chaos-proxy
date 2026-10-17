@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -49,6 +48,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Start control plane gRPC server
+	go func() {
+		if err := cp.Start(); err != nil {
+			logger.Debug("Control plane gRPC server stopped", "error", err)
+		}
+	}()
+
 	go func() {
 		if err := m.Start(); err != nil {
 			logger.Debug("Metrics server stopped", "error", err)
@@ -59,7 +65,7 @@ func main() {
 
 	<-ctx.Done()
 	logger.Info("Shutdown signal received, shutting down gracefully...")
-	_ = cp
+	cp.Stop()
 	_ = dp.Close()
 	_ = m.Shutdown(context.Background())
 	logger.Info("Go-Chaos-Proxy terminated cleanly")
