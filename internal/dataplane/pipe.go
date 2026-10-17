@@ -6,12 +6,14 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/pkg/protocol"
 )
 
@@ -29,6 +31,7 @@ type Pipe struct {
 	logger     *slog.Logger
 	closed     atomic.Bool
 	closeOnce  sync.Once
+	metrics    *metrics.Metrics
 }
 
 // NewPipe constructs a bi-directional streaming pipe.
@@ -43,12 +46,13 @@ func NewPipe(
 	totalPkts *atomic.Uint64,
 	totalBytes *atomic.Uint64,
 	logger *slog.Logger,
+	m ...*metrics.Metrics,
 ) *Pipe {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	return &Pipe{
+	p := &Pipe{
 		id:         id,
 		clientConn: clientConn,
 		serverConn: serverConn,
@@ -60,6 +64,10 @@ func NewPipe(
 		totalBytes: totalBytes,
 		logger:     logger.With("pipe_id", id),
 	}
+	if len(m) > 0 && m[0] != nil {
+		p.metrics = m[0]
+	}
+	return p
 }
 
 // Start begins bidirectional forwarding and blocks until both streams terminate or ctx is cancelled.
@@ -115,19 +123,31 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 				p.logger.Debug("L7 packet inspected", "direction", dir, "summary", inspectRes.Summary)
 			}
 
+			dirStr := strings.ToLower(string(dir))
+
 			// Check active fault rules if rules container is provided
 			action := p.evaluateFault(dir, buf[:n], inspectRes)
 			if action != nil {
 				if action.Type == engine.ActionDrop {
+					if p.metrics != nil {
+						p.metrics.RecordPacket(dirStr, "drop", n)
+					}
 					p.logger.Debug("Packet dropped by chaos rule", "direction", dir, "bytes", n)
 					continue // Discard packet
 				}
 				if action.Type == engine.ActionDisconnect {
+					if p.metrics != nil {
+						p.metrics.RecordPacket(dirStr, "disconnect", n)
+					}
 					p.logger.Debug("Disconnecting pipe by chaos rule", "direction", dir)
 					p.closeWithRST()
 					return
 				}
 				if action.Type == engine.ActionDelay && action.Delay > 0 {
+					if p.metrics != nil {
+						p.metrics.RecordLatency(action.Delay)
+						p.metrics.RecordPacket(dirStr, "delay", n)
+					}
 					select {
 					case <-time.After(action.Delay):
 					case <-ctx.Done():
@@ -135,7 +155,14 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 					}
 				}
 				if action.Type == engine.ActionCorrupt && action.Mutation != nil {
+					if p.metrics != nil {
+						p.metrics.RecordPacket(dirStr, "corrupt", n)
+					}
 					buf = action.Mutation(buf[:n])
+				}
+			} else {
+				if p.metrics != nil {
+					p.metrics.RecordPacket(dirStr, "pass", n)
 				}
 			}
 

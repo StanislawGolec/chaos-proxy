@@ -9,6 +9,7 @@ import (
 
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
 )
 
 func TestBufferPool(t *testing.T) {
@@ -149,3 +150,83 @@ func TestDataPlaneUpstreamUnreachable(t *testing.T) {
 		t.Fatalf("expected EOF on unreachable upstream, got n=%d, err=%v", n, rerr)
 	}
 }
+
+func TestDataPlaneWithPrometheusMetrics(t *testing.T) {
+	// 1. Echo upstream
+	echoListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start echo listener: %v", err)
+	}
+	defer echoListener.Close()
+
+	go func() {
+		for {
+			conn, err := echoListener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_, _ = io.Copy(c, c)
+			}(conn)
+		}
+	}()
+
+	// 2. DataPlane with Prometheus metrics
+	cfg := config.DefaultConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.TargetAddr = echoListener.Addr().String()
+	cfg.MetricsAddr = "127.0.0.1:0"
+
+	rules := engine.NewRuleContainer()
+	m := metrics.NewMetrics(cfg)
+	dp := NewDataPlane(cfg, rules, m)
+
+	if err := dp.Start(); err != nil {
+		t.Fatalf("failed to start DataPlane: %v", err)
+	}
+	defer dp.Close()
+
+	// 3. Connect client and send payload
+	clientConn, err := net.Dial("tcp", dp.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to connect to proxy: %v", err)
+	}
+	defer clientConn.Close()
+
+	payload := []byte("PLAY RED_7\n")
+	if _, err := clientConn.Write(payload); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	reply := make([]byte, len(payload))
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(clientConn, reply); err != nil {
+		t.Fatalf("failed to read reply: %v", err)
+	}
+
+	// 4. Verify Prometheus metrics updated
+	mfs, err := m.Registry().Gather()
+	if err != nil {
+		t.Fatalf("failed to gather prometheus metrics: %v", err)
+	}
+
+	foundPackets := false
+	foundBytes := false
+	for _, mf := range mfs {
+		if mf.GetName() == "chaos_packets_total" {
+			foundPackets = true
+		}
+		if mf.GetName() == "chaos_bytes_transferred_total" {
+			foundBytes = true
+		}
+	}
+
+	if !foundPackets {
+		t.Errorf("expected chaos_packets_total metric to be gathered")
+	}
+	if !foundBytes {
+		t.Errorf("expected chaos_bytes_transferred_total metric to be gathered")
+	}
+}
+

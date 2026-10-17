@@ -11,6 +11,7 @@ import (
 
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
 )
 
 // DataPlane manages the transparent TCP proxy listener, tunnel lifecycle, and active connections.
@@ -31,12 +32,13 @@ type DataPlane struct {
 	wg         sync.WaitGroup
 	logger     *slog.Logger
 	closed     atomic.Bool
+	metrics    *metrics.Metrics
 }
 
 // NewDataPlane creates a new DataPlane instance.
-func NewDataPlane(cfg *config.Config, rules *engine.RuleContainer) *DataPlane {
+func NewDataPlane(cfg *config.Config, rules *engine.RuleContainer, m ...*metrics.Metrics) *DataPlane {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &DataPlane{
+	dp := &DataPlane{
 		cfg:     cfg,
 		rules:   rules,
 		engine:  engine.NewEngine(rules),
@@ -46,6 +48,15 @@ func NewDataPlane(cfg *config.Config, rules *engine.RuleContainer) *DataPlane {
 		cancel:  cancel,
 		logger:  slog.Default().With("component", "dataplane"),
 	}
+	if len(m) > 0 && m[0] != nil {
+		dp.metrics = m[0]
+	}
+	return dp
+}
+
+// SetMetrics configures the Prometheus metrics collector for the data plane.
+func (dp *DataPlane) SetMetrics(m *metrics.Metrics) {
+	dp.metrics = m
 }
 
 // Start binds the TCP listener and begins accepting incoming client connections.
@@ -118,18 +129,25 @@ func (dp *DataPlane) handleConnection(clientConn net.Conn) {
 		&dp.totalPkts,
 		&dp.totalBytes,
 		dp.logger,
+		dp.metrics,
 	)
 
 	// Register tunnel
 	dp.mu.Lock()
 	dp.tunnels[tunnelID] = pipe
 	dp.activeConn.Add(1)
+	if dp.metrics != nil {
+		dp.metrics.ActiveTunnels.Inc()
+	}
 	dp.mu.Unlock()
 
 	defer func() {
 		dp.mu.Lock()
 		delete(dp.tunnels, tunnelID)
 		dp.activeConn.Add(-1)
+		if dp.metrics != nil {
+			dp.metrics.ActiveTunnels.Dec()
+		}
 		dp.mu.Unlock()
 		pipe.Close()
 		dp.logger.Debug("Connection tunnel closed", "tunnel_id", tunnelID)

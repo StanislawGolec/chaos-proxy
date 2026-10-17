@@ -33,10 +33,10 @@ func main() {
 	// Initialize thread-safe atomic rule container
 	rules := engine.NewRuleContainer()
 
-	// Initialize data plane, control plane, and metrics components
-	dp := dataplane.NewDataPlane(cfg, rules)
-	cp := controlplane.NewServer(cfg, rules, dp)
+	// Initialize metrics, data plane, and control plane components
 	m := metrics.NewMetrics(cfg)
+	dp := dataplane.NewDataPlane(cfg, rules, m)
+	cp := controlplane.NewServer(cfg, rules, dp, m)
 
 	// Graceful shutdown handling
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -61,6 +61,8 @@ func main() {
 		}
 	}()
 
+	m.SetReady(true)
+	m.SetHealthy(true)
 	logger.Info("Proxy daemon running and ready for traffic", "mode", cfg.Mode)
 
 	<-ctx.Done()
