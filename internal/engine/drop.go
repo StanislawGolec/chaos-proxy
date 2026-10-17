@@ -19,7 +19,7 @@ func NewDropController() *DropController {
 
 // ShouldDrop determines if an incoming packet should be discarded according to DropRule.
 func (dc *DropController) ShouldDrop(dir Direction, rule *DropRule) bool {
-	if rule == nil || rule.DropRatio <= 0 {
+	if rule == nil {
 		return false
 	}
 
@@ -38,6 +38,10 @@ func (dc *DropController) ShouldDrop(dir Direction, rule *DropRule) bool {
 	if dir == DirectionS2C && dc.burstRemainS2C > 0 {
 		dc.burstRemainS2C--
 		return true
+	}
+
+	if rule.DropRatio <= 0 {
+		return false
 	}
 
 	// Probabilistic roll
