@@ -10,7 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
 	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
+	"github.com/StanislawGolec/Go-Chaos-Proxy/pkg/protocol"
 )
 
 // Pipe coordinates bi-directional streaming between a client connection and an upstream server connection.
@@ -20,6 +22,7 @@ type Pipe struct {
 	serverConn net.Conn
 	pool       *BufferPool
 	rules      *engine.RuleContainer
+	mode       config.Mode
 	totalPkts  *atomic.Uint64
 	totalBytes *atomic.Uint64
 	logger     *slog.Logger
@@ -34,6 +37,7 @@ func NewPipe(
 	serverConn net.Conn,
 	pool *BufferPool,
 	rules *engine.RuleContainer,
+	mode config.Mode,
 	totalPkts *atomic.Uint64,
 	totalBytes *atomic.Uint64,
 	logger *slog.Logger,
@@ -48,6 +52,7 @@ func NewPipe(
 		serverConn: serverConn,
 		pool:       pool,
 		rules:      rules,
+		mode:       mode,
 		totalPkts:  totalPkts,
 		totalBytes: totalBytes,
 		logger:     logger.With("pipe_id", id),
@@ -101,8 +106,14 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 			p.totalPkts.Add(1)
 			p.totalBytes.Add(uint64(n))
 
+			var inspectRes *protocol.InspectionResult
+			if p.mode == config.ModeL7Aware {
+				inspectRes = protocol.Inspect(buf[:n])
+				p.logger.Debug("L7 packet inspected", "direction", dir, "summary", inspectRes.Summary)
+			}
+
 			// Check active fault rules if rules container is provided
-			action := p.evaluateFault(dir, buf[:n])
+			action := p.evaluateFault(dir, buf[:n], inspectRes)
 			if action != nil {
 				if action.Type == engine.ActionDrop {
 					p.logger.Debug("Packet dropped by chaos rule", "direction", dir, "bytes", n)
@@ -146,8 +157,8 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 	}
 }
 
-// evaluateFault checks active rules for a given direction.
-func (p *Pipe) evaluateFault(dir engine.Direction, payload []byte) *engine.Action {
+// evaluateFault checks active rules for a given direction and optional L7 inspection metadata.
+func (p *Pipe) evaluateFault(dir engine.Direction, payload []byte, inspectRes *protocol.InspectionResult) *engine.Action {
 	if p.rules == nil {
 		return nil
 	}
