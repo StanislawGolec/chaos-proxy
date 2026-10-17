@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package chaos.v1;
+
+option go_package = "github.com/StanislawGolec/Go-Chaos-Proxy/pkg/proto/v1;chaosv1";
+
+// ChaosControl provides dynamic runtime administration for L4/L7 fault injection.
+service ChaosControl {
+  // SetLatency configures base delay and jitter for packet streams.
+  rpc SetLatency(LatencyConfig) returns (Response);
+
+  // SetPacketDrop configures probabilistic or burst packet drops.
+  rpc SetPacketDrop(DropConfig) returns (Response);
+
+  // SetCorruption configures random bit flipping or payload fuzzing.
+  rpc SetCorruption(CorruptionConfig) returns (Response);
+
+  // SetThrottle configures bandwidth throttling (token bucket rate limiter).
+  rpc SetThrottle(ThrottleConfig) returns (Response);
+
+  // TriggerDisconnect immediately terminates active client socket connections (e.g. via TCP RST).
+  rpc TriggerDisconnect(DisconnectCommand) returns (Response);
+
+  // ResetAllFaults removes all active fault rules, reverting proxy to transparent pass-through.
+  rpc ResetAllFaults(Empty) returns (Response);
+
+  // GetStatus returns the current proxy operational metrics and active fault configuration.
+  rpc GetStatus(Empty) returns (StatusResponse);
+
+  // StreamEvents establishes a real-time event stream of packet actions for monitoring.
+  rpc StreamEvents(StreamFilter) returns (stream PacketEvent);
+}
+
+// Latency distribution model.
+enum LatencyDistribution {
+  UNIFORM = 0;
+  NORMAL = 1; // Gaussian distribution
+}
+
+// Latency and jitter injection configuration.
+message LatencyConfig {
+  uint32 base_ms = 1;                    // Base latency in milliseconds
+  uint32 jitter_ms = 2;                  // Jitter variance in milliseconds
+  LatencyDistribution distribution = 3;  // Distribution curve
+  double probability = 4;                // Probability of applying latency (0.0 to 1.0)
+  string direction = 5;                  // Traffic direction: "ALL", "C2S" (client->server), "S2C" (server->client)
+}
+
+// Packet drop configuration.
+message DropConfig {
+  double drop_ratio = 1;                 // Drop probability ratio (0.0 to 1.0)
+  uint32 burst_count = 2;                // Consecutive packets to drop in a single burst (default 1)
+  string direction = 3;                  // Traffic direction: "ALL", "C2S", "S2C"
+}
+
+// Payload corruption and fuzzing configuration.
+message CorruptionConfig {
+  double bit_flip_rate = 1;              // Probability of bit flip per packet (0.0 to 1.0)
+  string mode = 2;                       // "L4_RAW" (random byte offset) or "L7_SEMANTIC" (mutate game tokens)
+  string direction = 3;                  // Traffic direction: "ALL", "C2S", "S2C"
+}
+
+// Bandwidth throttling configuration.
+message ThrottleConfig {
+  uint64 bytes_per_second = 1;           // Maximum allowed bandwidth in bytes/sec (0 = unlimited)
+  string direction = 2;                  // Traffic direction: "ALL", "C2S", "S2C"
+}
+
+// Disconnection trigger command.
+message DisconnectCommand {
+  bool tcp_reset = 1;                    // If true, terminates with TCP RST (SetLinger(0)); else graceful FIN
+  bool immediate = 2;                    // Terminate all current active connections immediately
+  string direction = 3;                  // "ALL", "C2S", "S2C"
+}
+
+// Empty request message.
+message Empty {}
+
+// General operational response.
+message Response {
+  bool success = 1;
+  string message = 2;
+}
+
+// Status response detailing active faults and performance metrics.
+message StatusResponse {
+  uint64 uptime_seconds = 1;
+  uint64 active_tunnels = 2;
+  uint64 total_packets_processed = 3;
+  uint64 total_bytes_transferred = 4;
+  LatencyConfig latency = 5;
+  DropConfig drop = 6;
+  CorruptionConfig corruption = 7;
+  ThrottleConfig throttle = 8;
+}
+
+// Stream filter options for event subscriptions.
+message StreamFilter {
+  string direction = 1;                  // Filter by direction ("ALL", "C2S", "S2C")
+  repeated string actions = 2;           // Filter by action: "PASSED", "DELAYED", "DROPPED", "CORRUPTED"
+}
+
+// Real-time packet event telemetry record.
+message PacketEvent {
+  int64 timestamp_ns = 1;                // Unix timestamp in nanoseconds
+  string tunnel_id = 2;                  // Unique identifier for the client connection
+  string direction = 3;                  // "C2S" or "S2C"
+  uint32 byte_count = 4;                 // Packet or frame size in bytes
+  string action_taken = 5;               // "PASSED", "DELAYED", "DROPPED", "CORRUPTED"
+  uint32 delay_applied_ms = 6;           // Delay added if action_taken == "DELAYED"
+  string summary = 7;                    // Human-readable summary or L7 command opcode
+}
