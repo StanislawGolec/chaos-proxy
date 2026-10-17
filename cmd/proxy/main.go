@@ -7,11 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/controlplane"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/dataplane"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/controlplane"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/dataplane"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/metrics"
 )
 
 func main() {

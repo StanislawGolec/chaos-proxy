@@ -787,7 +787,7 @@ const file_chaos_proto_rawDesc = "" +
 	"\x11TriggerDisconnect\x12\x1b.chaos.v1.DisconnectCommand\x1a\x12.chaos.v1.Response\x125\n" +
 	"\x0eResetAllFaults\x12\x0f.chaos.v1.Empty\x1a\x12.chaos.v1.Response\x126\n" +
 	"\tGetStatus\x12\x0f.chaos.v1.Empty\x1a\x18.chaos.v1.StatusResponse\x12?\n" +
-	"\fStreamEvents\x12\x16.chaos.v1.StreamFilter\x1a\x15.chaos.v1.PacketEvent0\x01B?Z=github.com/StanislawGolec/Go-Chaos-Proxy/pkg/proto/v1;chaosv1b\x06proto3"
+	"\fStreamEvents\x12\x16.chaos.v1.StreamFilter\x1a\x15.chaos.v1.PacketEvent0\x01B?Z=github.com/StanislawGolec/go-chaos-proxy/pkg/proto/v1;chaosv1b\x06proto3"
 
 var (
 	file_chaos_proto_rawDescOnce sync.Once

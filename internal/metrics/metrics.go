@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

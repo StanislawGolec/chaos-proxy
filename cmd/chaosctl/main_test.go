@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	chaosv1 "github.com/StanislawGolec/Go-Chaos-Proxy/pkg/proto/v1"
+	chaosv1 "github.com/StanislawGolec/go-chaos-proxy/pkg/proto/v1"
 	"google.golang.org/grpc"
 )
 

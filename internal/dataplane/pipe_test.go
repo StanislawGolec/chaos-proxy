@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/config"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/engine"
-	"github.com/StanislawGolec/Go-Chaos-Proxy/internal/metrics"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/config"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/engine"
+	"github.com/StanislawGolec/go-chaos-proxy/internal/metrics"
 )
 
 func TestBufferPool(t *testing.T) {
