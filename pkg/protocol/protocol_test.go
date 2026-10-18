@@ -212,7 +212,45 @@ func TestParseUltimoMessage(t *testing.T) {
 		t.Errorf("args mismatch: got %v", evt.Args)
 	}
 
-	// 3. Empty input error
+	// 3. Tournament Commands & Server Events
+	tournamentTests := []struct {
+		input        string
+		wantCategory MessageCategory
+		wantVerb     string
+		wantArgs     []string
+	}{
+		{"ULTIMO\n", CategoryCommand, "ULTIMO", nil},
+		{"CATCH_ULTIMO\r\n", CategoryCommand, "CATCH_ULTIMO", nil},
+		{"CHALLENGE_WILD_FOUR\n", CategoryCommand, "CHALLENGE_WILD_FOUR", nil},
+		{"SERVER_SHUTDOWN 5\n", CategoryEvent, "SERVER_SHUTDOWN", []string{"5"}},
+		{"ULTIMO_DECLARED Bob\n", CategoryEvent, "ULTIMO_DECLARED", []string{"Bob"}},
+		{"ULTIMO_PENALTY Bob 2\n", CategoryEvent, "ULTIMO_PENALTY", []string{"Bob", "2"}},
+		{"CHALLENGE_RESULT SUCCESS 4\n", CategoryEvent, "CHALLENGE_RESULT", []string{"SUCCESS", "4"}},
+		{"ROUND_OVER Alice 45 WON Alice:45,Bob:10\n", CategoryEvent, "ROUND_OVER", []string{"Alice", "45", "WON", "Alice:45,Bob:10"}},
+	}
+
+	for _, tt := range tournamentTests {
+		res, err := ParseUltimoMessage(tt.input)
+		if err != nil {
+			t.Fatalf("ParseUltimoMessage(%q) failed: %v", tt.input, err)
+		}
+		if res.Category != tt.wantCategory {
+			t.Errorf("ParseUltimoMessage(%q) category = %v, want %v", tt.input, res.Category, tt.wantCategory)
+		}
+		if res.Verb != tt.wantVerb {
+			t.Errorf("ParseUltimoMessage(%q) verb = %v, want %v", tt.input, res.Verb, tt.wantVerb)
+		}
+		if len(res.Args) != len(tt.wantArgs) {
+			t.Fatalf("ParseUltimoMessage(%q) args len = %d, want %d", tt.input, len(res.Args), len(tt.wantArgs))
+		}
+		for i := range tt.wantArgs {
+			if res.Args[i] != tt.wantArgs[i] {
+				t.Errorf("ParseUltimoMessage(%q) arg[%d] = %v, want %v", tt.input, i, res.Args[i], tt.wantArgs[i])
+			}
+		}
+	}
+
+	// 4. Empty input error
 	if _, err := ParseUltimoMessage("   \n"); err == nil {
 		t.Errorf("expected error on empty line")
 	}

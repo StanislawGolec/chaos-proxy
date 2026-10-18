@@ -131,6 +131,43 @@ func FormatCard(c Card) string {
 	return fmt.Sprintf("%s_%s", c.Color, c.Value)
 }
 
+// UltimoCommand represents client-to-server commands in the authoritative Ultimo protocol.
+type UltimoCommand string
+
+const (
+	CmdJoin              UltimoCommand = "JOIN"
+	CmdStart             UltimoCommand = "START"
+	CmdPlay              UltimoCommand = "PLAY"
+	CmdDraw              UltimoCommand = "DRAW"
+	CmdPass              UltimoCommand = "PASS"
+	CmdPing              UltimoCommand = "PING"
+	CmdChat              UltimoCommand = "CHAT"
+	CmdUltimo            UltimoCommand = "ULTIMO"
+	CmdCatchUltimo       UltimoCommand = "CATCH_ULTIMO"
+	CmdChallengeWildFour UltimoCommand = "CHALLENGE_WILD_FOUR"
+)
+
+// UltimoEvent represents server-to-client events in the authoritative Ultimo protocol.
+type UltimoEvent string
+
+const (
+	EventWelcome         UltimoEvent = "WELCOME"
+	EventRoomStatus      UltimoEvent = "ROOM_STATUS"
+	EventHandUpdate      UltimoEvent = "HAND_UPDATE"
+	EventTopCard         UltimoEvent = "TOP_CARD"
+	EventTurnAnnounced   UltimoEvent = "TURN_ANNOUNCED"
+	EventOpponentUpdate  UltimoEvent = "OPPONENT_UPDATE"
+	EventDrawResult      UltimoEvent = "DRAW_RESULT"
+	EventGameOver        UltimoEvent = "GAME_OVER"
+	EventError           UltimoEvent = "ERROR"
+	EventPong            UltimoEvent = "PONG"
+	EventServerShutdown  UltimoEvent = "SERVER_SHUTDOWN"
+	EventUltimoDeclared  UltimoEvent = "ULTIMO_DECLARED"
+	EventUltimoPenalty   UltimoEvent = "ULTIMO_PENALTY"
+	EventChallengeResult UltimoEvent = "CHALLENGE_RESULT"
+	EventRoundOver       UltimoEvent = "ROUND_OVER"
+)
+
 // MessageCategory distinguishes commands originating from clients vs events from the game server.
 type MessageCategory string
 
@@ -166,7 +203,8 @@ func ParseUltimoMessage(line string) (*UltimoMessage, error) {
 
 	category := CategoryUnknown
 	switch UltimoCommand(verb) {
-	case CmdJoin, CmdStart, CmdPlay, CmdDraw, CmdPass, CmdPing, CmdChat:
+	case CmdJoin, CmdStart, CmdPlay, CmdDraw, CmdPass, CmdPing, CmdChat,
+		CmdUltimo, CmdCatchUltimo, CmdChallengeWildFour:
 		category = CategoryCommand
 	}
 
@@ -174,7 +212,9 @@ func ParseUltimoMessage(line string) (*UltimoMessage, error) {
 		switch UltimoEvent(verb) {
 		case EventWelcome, EventRoomStatus, EventHandUpdate, EventTopCard,
 			EventTurnAnnounced, EventOpponentUpdate, EventDrawResult,
-			EventGameOver, EventError, EventPong:
+			EventGameOver, EventError, EventPong, EventServerShutdown,
+			EventUltimoDeclared, EventUltimoPenalty, EventChallengeResult,
+			EventRoundOver:
 			category = CategoryEvent
 		}
 	}
