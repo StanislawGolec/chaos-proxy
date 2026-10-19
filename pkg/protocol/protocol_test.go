@@ -212,7 +212,7 @@ func TestParseUltimoMessage(t *testing.T) {
 		t.Errorf("args mismatch: got %v", evt.Args)
 	}
 
-	// 3. Tournament Commands & Server Events
+	// 3. Tournament & Phase 2 Commands & Server Events
 	tournamentTests := []struct {
 		input        string
 		wantCategory MessageCategory
@@ -222,11 +222,19 @@ func TestParseUltimoMessage(t *testing.T) {
 		{"ULTIMO\n", CategoryCommand, "ULTIMO", nil},
 		{"CATCH_ULTIMO\r\n", CategoryCommand, "CATCH_ULTIMO", nil},
 		{"CHALLENGE_WILD_FOUR\n", CategoryCommand, "CHALLENGE_WILD_FOUR", nil},
+		{"LIST_ROOMS\n", CategoryCommand, "LIST_ROOMS", nil},
+		{"TRANSFER_OWNERSHIP Bob\n", CategoryCommand, "TRANSFER_OWNERSHIP", []string{"Bob"}},
+		{"KICK Charlie\r\n", CategoryCommand, "KICK", []string{"Charlie"}},
+		{"DEFEND RED_DRAW_TWO\n", CategoryCommand, "DEFEND", []string{"RED_DRAW_TWO"}},
 		{"SERVER_SHUTDOWN 5\n", CategoryEvent, "SERVER_SHUTDOWN", []string{"5"}},
 		{"ULTIMO_DECLARED Bob\n", CategoryEvent, "ULTIMO_DECLARED", []string{"Bob"}},
 		{"ULTIMO_PENALTY Bob 2\n", CategoryEvent, "ULTIMO_PENALTY", []string{"Bob", "2"}},
 		{"CHALLENGE_RESULT SUCCESS 4\n", CategoryEvent, "CHALLENGE_RESULT", []string{"SUCCESS", "4"}},
 		{"ROUND_OVER Alice 45 WON Alice:45,Bob:10\n", CategoryEvent, "ROUND_OVER", []string{"Alice", "45", "WON", "Alice:45,Bob:10"}},
+		{"ROOM_LIST room_1:2/4:WAITING,room_2:4/4:PLAYING\n", CategoryEvent, "ROOM_LIST", []string{"room_1:2/4:WAITING,room_2:4/4:PLAYING"}},
+		{"DEFENSE_STACK 4 DRAW_TWO Bob\n", CategoryEvent, "DEFENSE_STACK", []string{"4", "DRAW_TWO", "Bob"}},
+		{"PODIUM_STANDINGS 1:Alice:120,2:Bob:85,3:Charlie:40\n", CategoryEvent, "PODIUM_STANDINGS", []string{"1:Alice:120,2:Bob:85,3:Charlie:40"}},
+		{"RECONNECT_SNAPSHOT room_1 RED_5 Alice RED_7,BLUE_SKIP Bob:3,Charlie:5\n", CategoryEvent, "RECONNECT_SNAPSHOT", []string{"room_1", "RED_5", "Alice", "RED_7,BLUE_SKIP", "Bob:3,Charlie:5"}},
 	}
 
 	for _, tt := range tournamentTests {
