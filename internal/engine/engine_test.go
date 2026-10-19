@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestCalculateDelayUniform(t *testing.T) {
@@ -202,6 +204,8 @@ func TestApplyTCPReset(t *testing.T) {
 }
 
 func TestEnginePipelineOrchestration(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
 	rules := NewRuleContainer()
 	eng := NewEngine(rules)
 
@@ -245,9 +249,14 @@ func TestEnginePipelineOrchestration(t *testing.T) {
 		t.Errorf("expected ActionCorrupt with mutation func, got %v", act4.Type)
 	}
 
-	// 5. Disconnect Rule
+	// 5. Disconnect Rule with GracePeriodSec
 	rules.Store(&RuleSet{
-		Disconnect: &DisconnectRule{TCPReset: true, Immediate: true, Direction: DirectionAll},
+		Disconnect: &DisconnectRule{
+			TCPReset:       true,
+			Immediate:      true,
+			Direction:      DirectionAll,
+			GracePeriodSec: 120,
+		},
 	})
 	act5 := eng.Process(DirectionC2S, payload)
 	if act5.Type != ActionDisconnect {
@@ -259,5 +268,78 @@ func TestEnginePipelineOrchestration(t *testing.T) {
 	act6 := eng.Process(DirectionC2S, payload)
 	if act6.Type != ActionPass {
 		t.Errorf("expected ActionPass after Reset, got %v", act6.Type)
+	}
+}
+
+func TestTargetedVerbDropDefend(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	rules := NewRuleContainer()
+	rules.Store(&RuleSet{
+		Drop: &DropRule{
+			DropRatio:  1.0,
+			BurstCount: 1,
+			Direction:  DirectionC2S,
+			TargetVerb: "DEFEND",
+		},
+	})
+	eng := NewEngine(rules)
+
+	// DEFEND packets must be dropped
+	defendPayloads := [][]byte{
+		[]byte("DEFEND RED_2\n"),
+		[]byte("DEFEND WILD_DRAW_FOUR\r\n"),
+		[]byte("defend blue_draw_two\n"),
+	}
+	for _, pkt := range defendPayloads {
+		act := eng.Process(DirectionC2S, pkt)
+		if act.Type != ActionDrop {
+			t.Errorf("expected ActionDrop for DEFEND payload %q, got %v", string(pkt), act.Type)
+		}
+	}
+
+	// Non-DEFEND packets (including DEFENSE_STACK, PLAY, JOIN, PING) must pass
+	passPayloads := [][]byte{
+		[]byte("PLAY RED_7\n"),
+		[]byte("JOIN Alice room_1\n"),
+		[]byte("DRAW\n"),
+		[]byte("PASS\n"),
+		[]byte("PING\n"),
+		[]byte("DEFENSE_STACK Alice 4 5000\n"),
+	}
+	for _, pkt := range passPayloads {
+		act := eng.Process(DirectionC2S, pkt)
+		if act.Type != ActionPass {
+			t.Errorf("expected ActionPass for non-DEFEND payload %q, got %v", string(pkt), act.Type)
+		}
+	}
+}
+
+func TestTargetedVerbDropDefenseStack(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	rules := NewRuleContainer()
+	rules.Store(&RuleSet{
+		Drop: &DropRule{
+			DropRatio:  1.0,
+			BurstCount: 1,
+			Direction:  DirectionS2C,
+			TargetVerb: "DEFENSE_STACK",
+		},
+	})
+	eng := NewEngine(rules)
+
+	// DEFENSE_STACK on S2C must be dropped
+	stackPkt := []byte("DEFENSE_STACK Bob 2 5000\n")
+	if act := eng.Process(DirectionS2C, stackPkt); act.Type != ActionDrop {
+		t.Errorf("expected ActionDrop for DEFENSE_STACK on S2C, got %v", act.Type)
+	}
+
+	// DEFEND or other S2C events must pass
+	if act := eng.Process(DirectionS2C, []byte("DEFEND RED_2\n")); act.Type != ActionPass {
+		t.Errorf("expected ActionPass for DEFEND when targeting DEFENSE_STACK, got %v", act.Type)
+	}
+	if act := eng.Process(DirectionS2C, []byte("TURN_ANNOUNCED Alice 15000\n")); act.Type != ActionPass {
+		t.Errorf("expected ActionPass for TURN_ANNOUNCED, got %v", act.Type)
 	}
 }
