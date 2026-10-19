@@ -47,7 +47,21 @@ curl -s "http://${METRICS_ADDR}/metrics" | grep "chaos_control_plane_rule_update
 echo "[-] Resetting all fault rules back to transparent pass-through..."
 ${CHAOSCTL} --grpc="${GRPC_ADDR}" reset
 
-# 10. Verify Clean State
+# 10. Stage 11 Simulation: Defense Packet Drop (DEFEND Command Loss)
+echo "[-] Stage 11: Injecting targeted L7 packet drop for DEFEND commands (100% drop rate)..."
+${CHAOSCTL} --grpc="${GRPC_ADDR}" drop --verb=DEFEND --rate=1.0 --dir=C2S
+${CHAOSCTL} --grpc="${GRPC_ADDR}" scenario defense-drop
+${CHAOSCTL} --grpc="${GRPC_ADDR}" status
+
+# 11. Stage 13 Simulation: Reconnection Grace Period (120s Grace Window)
+echo "[-] Stage 13: Severing connections with 120s reconnection grace period..."
+${CHAOSCTL} --grpc="${GRPC_ADDR}" disconnect --grace=120s --immediate=true --dir=ALL
+${CHAOSCTL} --grpc="${GRPC_ADDR}" scenario reconnect-grace
+
+# 12. Final Reset & Verify Clean State
+echo "[-] Resetting all fault rules back to transparent pass-through..."
+${CHAOSCTL} --grpc="${GRPC_ADDR}" reset
+
 echo "[-] Verifying clean state..."
 ${CHAOSCTL} --grpc="${GRPC_ADDR}" status
 

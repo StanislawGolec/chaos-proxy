@@ -54,7 +54,21 @@ Write-Host "[-] Inspecting active fault rules..." -ForegroundColor Yellow
 Write-Host "[-] Resetting all fault rules back to transparent pass-through..." -ForegroundColor Yellow
 & $ChaosctlPath --grpc="$GrpcAddr" reset
 
-# 9. Verify Clean State
+# 9. Stage 11 Simulation: Defense Packet Drop (DEFEND Command Loss)
+Write-Host "[-] Stage 11: Injecting targeted L7 packet drop for DEFEND commands (100% drop rate)..." -ForegroundColor Yellow
+& $ChaosctlPath --grpc="$GrpcAddr" drop --verb=DEFEND --rate=1.0 --dir=C2S
+& $ChaosctlPath --grpc="$GrpcAddr" scenario defense-drop
+& $ChaosctlPath --grpc="$GrpcAddr" status
+
+# 10. Stage 13 Simulation: Reconnection Grace Period (120s Grace Window)
+Write-Host "[-] Stage 13: Severing connections with 120s reconnection grace period..." -ForegroundColor Yellow
+& $ChaosctlPath --grpc="$GrpcAddr" disconnect --grace=120s --immediate=true --dir=ALL
+& $ChaosctlPath --grpc="$GrpcAddr" scenario reconnect-grace
+
+# 11. Final Reset & Verify Clean State
+Write-Host "[-] Resetting all fault rules back to transparent pass-through..." -ForegroundColor Yellow
+& $ChaosctlPath --grpc="$GrpcAddr" reset
+
 Write-Host "[-] Verifying clean state..." -ForegroundColor Yellow
 & $ChaosctlPath --grpc="$GrpcAddr" status
 
