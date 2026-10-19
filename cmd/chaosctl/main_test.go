@@ -386,3 +386,215 @@ func TestCLI_SubcommandHelp(t *testing.T) {
 	}
 }
 
+func TestCLI_DropCommand_VerbFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cli := NewCLI(&stdout, &stderr)
+	mock := &mockChaosControlClient{}
+	cli.SetClient(mock)
+
+	args := []string{"drop", "--verb=defend", "--rate=1.0", "--burst=1", "--dir=C2S"}
+	if err := cli.Run(context.Background(), args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mock.dropConfig == nil {
+		t.Fatal("expected drop config to be set")
+	}
+	if mock.dropConfig.DropRatio != 1.0 {
+		t.Errorf("expected drop ratio 1.0, got %f", mock.dropConfig.DropRatio)
+	}
+	if mock.dropConfig.Direction != "C2S" {
+		t.Errorf("expected direction C2S, got %s", mock.dropConfig.Direction)
+	}
+	if cli.targetDropVerb != "DEFEND" {
+		t.Errorf("expected targetDropVerb DEFEND, got %s", cli.targetDropVerb)
+	}
+	if v := getDropTargetVerb(mock.dropConfig); v != "" && v != "DEFEND" {
+		t.Errorf("expected proto target verb DEFEND, got %s", v)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[OK]") || !strings.Contains(out, "verb=DEFEND") {
+		t.Errorf("expected [OK] and verb=DEFEND in output, got: %s", out)
+	}
+}
+
+func TestCLI_DropCommand_VerbFlag_JSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cli := NewCLI(&stdout, &stderr)
+	mock := &mockChaosControlClient{}
+	cli.SetClient(mock)
+
+	args := []string{"drop", "--verb=DEFEND", "--rate=1.0", "--json"}
+	if err := cli.Run(context.Background(), args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to unmarshal JSON output: %v, raw: %s", err, stdout.String())
+	}
+	if success, ok := payload["success"].(bool); !ok || !success {
+		t.Errorf("expected success=true, got: %v", payload["success"])
+	}
+	meta, ok := payload["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected metadata map in JSON output, got: %v", payload["metadata"])
+	}
+	if meta["verb"] != "DEFEND" {
+		t.Errorf("expected metadata.verb=DEFEND, got: %v", meta["verb"])
+	}
+	if meta["drop_ratio"] != 1.0 {
+		t.Errorf("expected metadata.drop_ratio=1.0, got: %v", meta["drop_ratio"])
+	}
+}
+
+func TestCLI_DisconnectCommand_GraceFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cli := NewCLI(&stdout, &stderr)
+	mock := &mockChaosControlClient{}
+	cli.SetClient(mock)
+
+	args := []string{"disconnect", "--grace=120s", "--immediate=true", "--dir=ALL"}
+	if err := cli.Run(context.Background(), args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mock.disconnectCommand == nil {
+		t.Fatal("expected disconnect command to be set")
+	}
+	if !mock.disconnectCommand.Immediate {
+		t.Errorf("expected immediate=true")
+	}
+	if cli.disconnectGrace != 120*time.Second {
+		t.Errorf("expected disconnectGrace=120s, got %v", cli.disconnectGrace)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[OK]") || !strings.Contains(out, "grace=120s") {
+		t.Errorf("expected [OK] and grace=120s in output, got: %s", out)
+	}
+
+	// Verify invalid grace duration returns an error
+	if err := cli.Run(context.Background(), []string{"disconnect", "--grace=invalid"}); err == nil {
+		t.Errorf("expected error for invalid --grace flag")
+	}
+}
+
+func TestCLI_DisconnectCommand_GraceFlag_JSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cli := NewCLI(&stdout, &stderr)
+	mock := &mockChaosControlClient{}
+	cli.SetClient(mock)
+
+	args := []string{"disconnect", "--grace=120s", "--json"}
+	if err := cli.Run(context.Background(), args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to unmarshal JSON output: %v, raw: %s", err, stdout.String())
+	}
+	meta, ok := payload["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected metadata map in JSON output, got: %v", payload["metadata"])
+	}
+	if meta["grace_period"] != "120s" {
+		t.Errorf("expected metadata.grace_period=120s, got: %v", meta["grace_period"])
+	}
+	if meta["grace_seconds"] != float64(120) {
+		t.Errorf("expected metadata.grace_seconds=120, got: %v", meta["grace_seconds"])
+	}
+}
+
+func TestCLI_ScenarioCommand(t *testing.T) {
+	t.Run("defense-drop", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		cli := NewCLI(&stdout, &stderr)
+		mock := &mockChaosControlClient{}
+		cli.SetClient(mock)
+
+		if err := cli.Run(context.Background(), []string{"scenario", "defense-drop"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if mock.dropConfig == nil || mock.dropConfig.DropRatio != 1.0 {
+			t.Fatalf("expected drop ratio 1.0, got %+v", mock.dropConfig)
+		}
+		if cli.targetDropVerb != "DEFEND" {
+			t.Errorf("expected targetDropVerb DEFEND, got %s", cli.targetDropVerb)
+		}
+	})
+
+	t.Run("reconnect-grace", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		cli := NewCLI(&stdout, &stderr)
+		mock := &mockChaosControlClient{}
+		cli.SetClient(mock)
+
+		if err := cli.Run(context.Background(), []string{"scenario", "reconnect-grace"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if mock.disconnectCommand == nil || !mock.disconnectCommand.Immediate {
+			t.Fatalf("expected immediate disconnect command, got %+v", mock.disconnectCommand)
+		}
+		if cli.disconnectGrace != 120*time.Second {
+			t.Errorf("expected disconnectGrace 120s, got %v", cli.disconnectGrace)
+		}
+	})
+
+	t.Run("unknown-scenario", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		cli := NewCLI(&stdout, &stderr)
+		mock := &mockChaosControlClient{}
+		cli.SetClient(mock)
+
+		if err := cli.Run(context.Background(), []string{"scenario", "nonexistent"}); err == nil {
+			t.Fatal("expected error for unknown scenario")
+		}
+	})
+}
+
+func TestCLI_OutputFormatting_TabularANSIAndJSON(t *testing.T) {
+	// 1. Tabular ANSI mode (color enabled)
+	var ansiOut, ansiErr bytes.Buffer
+	cliANSI := NewCLI(&ansiOut, &ansiErr)
+	mock := &mockChaosControlClient{}
+	cliANSI.SetClient(mock)
+
+	if err := cliANSI.Run(context.Background(), []string{"drop", "--verb=DEFEND", "--rate=1.0"}); err != nil {
+		t.Fatalf("unexpected error in drop: %v", err)
+	}
+	ansiDropOut := ansiOut.String()
+	if !strings.Contains(ansiDropOut, colorGreen) || !strings.Contains(ansiDropOut, "[OK]") {
+		t.Errorf("expected ANSI green [OK] in output, got: %q", ansiDropOut)
+	}
+
+	ansiOut.Reset()
+	if err := cliANSI.Run(context.Background(), []string{"status"}); err != nil {
+		t.Fatalf("unexpected error in status: %v", err)
+	}
+	statusANSI := ansiOut.String()
+	if !strings.Contains(statusANSI, colorBold) || !strings.Contains(statusANSI, "=== Go-Chaos-Proxy Operational Status ===") {
+		t.Errorf("expected bold ANSI header in tabular status output, got: %q", statusANSI)
+	}
+	if !strings.Contains(statusANSI, colorRed) || !strings.Contains(statusANSI, "Verb=DEFEND") {
+		t.Errorf("expected red ANSI packet drop row with Verb=DEFEND in tabular status output, got: %q", statusANSI)
+	}
+
+	// 2. JSON mode
+	var jsonOut, jsonErr bytes.Buffer
+	cliJSON := NewCLI(&jsonOut, &jsonErr)
+	cliJSON.SetClient(mock)
+
+	if err := cliJSON.Run(context.Background(), []string{"--json", "status"}); err != nil {
+		t.Fatalf("unexpected error in json status: %v", err)
+	}
+	var statusResp chaosv1.StatusResponse
+	if err := json.Unmarshal(jsonOut.Bytes(), &statusResp); err != nil {
+		t.Fatalf("expected valid JSON status output, got error: %v, raw: %s", err, jsonOut.String())
+	}
+	if statusResp.ActiveTunnels != 4 {
+		t.Errorf("expected 4 active tunnels in JSON status, got %d", statusResp.ActiveTunnels)
+	}
+}
+
+

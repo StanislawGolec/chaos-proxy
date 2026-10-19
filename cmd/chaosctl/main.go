@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,13 +35,15 @@ const (
 
 // CLI represents the chaosctl operator interface.
 type CLI struct {
-	grpcAddr string
-	jsonOut  bool
-	noColor  bool
-	client   chaosv1.ChaosControlClient
-	conn     *grpc.ClientConn
-	stdout   io.Writer
-	stderr   io.Writer
+	grpcAddr        string
+	jsonOut         bool
+	noColor         bool
+	targetDropVerb  string
+	disconnectGrace time.Duration
+	client          chaosv1.ChaosControlClient
+	conn            *grpc.ClientConn
+	stdout          io.Writer
+	stderr          io.Writer
 }
 
 // NewCLI creates a new CLI instance with custom stdout/stderr writers.
@@ -141,6 +144,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		err = c.runThrottle(ctx, cmdArgs)
 	case "disconnect":
 		err = c.runDisconnect(ctx, cmdArgs)
+	case "scenario":
+		err = c.runScenario(ctx, cmdArgs)
 	case "reset":
 		err = c.runReset(ctx, cmdArgs)
 	case "status":
@@ -166,10 +171,11 @@ Usage:
 
 Commands:
   latency       Configure network latency and jitter distribution
-  drop          Configure probabilistic or burst packet drops
+  drop          Configure probabilistic, burst, or L7 verb-targeted packet drops
   corrupt       Configure payload bit flipping or L7 token mutation
   throttle      Configure bandwidth rate limiting (Token Bucket)
-  disconnect    Trigger socket termination (TCP RST tearing)
+  disconnect    Trigger socket termination (TCP RST tearing and reconnect grace)
+  scenario      Apply predefined chaos scenarios (defense-drop, reconnect-grace)
   reset         Clear all active faults (transparent pass-through)
   status        Display active faults, operational uptime, and tunnel metrics
   tail          Stream real-time packet event telemetry with ANSI highlights
@@ -257,6 +263,7 @@ func (c *CLI) runDrop(ctx context.Context, args []string) error {
 	rate := fs.Float64("rate", 0.20, "Drop probability ratio (0.0 to 1.0)")
 	burst := fs.Uint("burst", 1, "Consecutive packets to drop per burst")
 	dir := fs.String("dir", "ALL", "Direction: ALL, C2S, S2C")
+	verb := fs.String("verb", "", "Optional L7 protocol verb to selectively drop (e.g. DEFEND)")
 	jsonFlag := fs.Bool("json", false, "Output response in JSON format")
 	noColorFlag := fs.Bool("no-color", false, "Disable ANSI color coding")
 
@@ -270,6 +277,9 @@ func (c *CLI) runDrop(ctx context.Context, args []string) error {
 		c.noColor = true
 	}
 
+	targetVerb := strings.ToUpper(strings.TrimSpace(*verb))
+	c.targetDropVerb = targetVerb
+
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
@@ -279,18 +289,32 @@ func (c *CLI) runDrop(ctx context.Context, args []string) error {
 		BurstCount: uint32(*burst),
 		Direction:  strings.ToUpper(*dir),
 	}
+	setDropTargetVerb(req, targetVerb)
 
 	resp, err := c.client.SetPacketDrop(ctx, req)
 	if err != nil {
 		return fmt.Errorf("gRPC SetPacketDrop failed: %w", err)
 	}
 
-	return c.printResponse(resp, map[string]any{
+	outResp := &chaosv1.Response{
+		Success: resp.GetSuccess(),
+		Message: resp.GetMessage(),
+	}
+	if targetVerb != "" && !strings.Contains(outResp.Message, targetVerb) {
+		outResp.Message = fmt.Sprintf("%s (verb=%s)", resp.GetMessage(), targetVerb)
+	}
+
+	meta := map[string]any{
 		"action":      "drop",
 		"drop_ratio":  *rate,
 		"burst_count": *burst,
 		"direction":   strings.ToUpper(*dir),
-	})
+	}
+	if targetVerb != "" {
+		meta["verb"] = targetVerb
+	}
+
+	return c.printResponse(outResp, meta)
 }
 
 func (c *CLI) runCorrupt(ctx context.Context, args []string) error {
@@ -391,6 +415,8 @@ func (c *CLI) runDisconnect(ctx context.Context, args []string) error {
 	fs.SetOutput(c.stderr)
 
 	immediate := fs.Bool("immediate", true, "Force immediate hardware socket teardown (TCP RST)")
+	tcpReset := fs.Bool("tcp-reset", false, "Terminate with hardware TCP RST (SetLinger(0))")
+	graceStr := fs.String("grace", "0s", "Reconnection grace period duration (e.g. 120s, 2m)")
 	dir := fs.String("dir", "ALL", "Direction: ALL, C2S, S2C")
 	jsonFlag := fs.Bool("json", false, "Output response in JSON format")
 	noColorFlag := fs.Bool("no-color", false, "Disable ANSI color coding")
@@ -405,25 +431,99 @@ func (c *CLI) runDisconnect(ctx context.Context, args []string) error {
 		c.noColor = true
 	}
 
+	graceDur, err := parseGraceDuration(*graceStr)
+	if err != nil {
+		return fmt.Errorf("invalid grace duration: %w", err)
+	}
+	c.disconnectGrace = graceDur
+
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
 
 	req := &chaosv1.DisconnectCommand{
+		TcpReset:  *tcpReset,
 		Immediate: *immediate,
 		Direction: strings.ToUpper(*dir),
 	}
+	setDisconnectGracePeriod(req, graceDur)
 
 	resp, err := c.client.TriggerDisconnect(ctx, req)
 	if err != nil {
 		return fmt.Errorf("gRPC TriggerDisconnect failed: %w", err)
 	}
 
-	return c.printResponse(resp, map[string]any{
+	outResp := &chaosv1.Response{
+		Success: resp.GetSuccess(),
+		Message: resp.GetMessage(),
+	}
+	graceFormatted := formatGraceSeconds(graceDur)
+	if graceDur > 0 && !strings.Contains(outResp.Message, graceFormatted) {
+		outResp.Message = fmt.Sprintf("%s (grace=%s)", resp.GetMessage(), graceFormatted)
+	}
+
+	meta := map[string]any{
 		"action":    "disconnect",
 		"immediate": *immediate,
 		"direction": strings.ToUpper(*dir),
-	})
+	}
+	if graceDur > 0 {
+		meta["grace_period"] = graceFormatted
+		meta["grace_seconds"] = uint32(graceDur.Seconds())
+	}
+
+	return c.printResponse(outResp, meta)
+}
+
+func (c *CLI) runScenario(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("scenario", flag.ContinueOnError)
+	fs.SetOutput(c.stderr)
+
+	nameFlag := fs.String("name", "", "Scenario preset name: defense-drop or reconnect-grace")
+	jsonFlag := fs.Bool("json", false, "Output response in JSON format")
+	noColorFlag := fs.Bool("no-color", false, "Disable ANSI color coding")
+
+	var flagArgs []string
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			if (arg == "-name" || arg == "--name") && i+1 < len(args) {
+				flagArgs = append(flagArgs, args[i+1])
+				i++
+			}
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if *jsonFlag {
+		c.jsonOut = true
+	}
+	if *noColorFlag {
+		c.noColor = true
+	}
+
+	scenarioName := strings.ToLower(strings.TrimSpace(*nameFlag))
+	if scenarioName == "" && len(positional) > 0 {
+		scenarioName = strings.ToLower(strings.TrimSpace(positional[0]))
+	}
+	if scenarioName == "" {
+		return errors.New("scenario name required: specify 'defense-drop' or 'reconnect-grace'")
+	}
+
+	switch scenarioName {
+	case "defense-drop":
+		return c.runDrop(ctx, []string{"--verb=DEFEND", "--rate=1.0", "--dir=C2S"})
+	case "reconnect-grace":
+		return c.runDisconnect(ctx, []string{"--grace=120s", "--immediate=true", "--dir=ALL"})
+	default:
+		return fmt.Errorf("unknown scenario %q (supported: defense-drop, reconnect-grace)", scenarioName)
+	}
 }
 
 func (c *CLI) runReset(ctx context.Context, args []string) error {
@@ -441,6 +541,9 @@ func (c *CLI) runReset(ctx context.Context, args []string) error {
 	if *noColorFlag {
 		c.noColor = true
 	}
+
+	c.targetDropVerb = ""
+	c.disconnectGrace = 0
 
 	if err := c.Connect(ctx); err != nil {
 		return err
@@ -602,9 +705,19 @@ func (c *CLI) formatStatusTable(s *chaosv1.StatusResponse) {
 
 	// Packet Drop
 	if drop := s.GetDrop(); drop != nil && drop.GetDropRatio() > 0 {
-		fmt.Fprintf(c.stdout, "  %sPacket Drop:%s           Ratio=%.1f%%, BurstCount=%d, Dir=%s\n",
-			c.color(colorRed), c.color(colorReset),
-			drop.GetDropRatio()*100, drop.GetBurstCount(), drop.GetDirection())
+		verb := getDropTargetVerb(drop)
+		if verb == "" {
+			verb = c.targetDropVerb
+		}
+		if verb != "" {
+			fmt.Fprintf(c.stdout, "  %sPacket Drop:%s           Ratio=%.1f%%, BurstCount=%d, Dir=%s, Verb=%s\n",
+				c.color(colorRed), c.color(colorReset),
+				drop.GetDropRatio()*100, drop.GetBurstCount(), drop.GetDirection(), verb)
+		} else {
+			fmt.Fprintf(c.stdout, "  %sPacket Drop:%s           Ratio=%.1f%%, BurstCount=%d, Dir=%s\n",
+				c.color(colorRed), c.color(colorReset),
+				drop.GetDropRatio()*100, drop.GetBurstCount(), drop.GetDirection())
+		}
 	} else {
 		fmt.Fprintf(c.stdout, "  Packet Drop:           %sNone (0%%)%s\n", c.color(colorDim), c.color(colorReset))
 	}
@@ -656,6 +769,79 @@ func (c *CLI) formatEventLine(event *chaosv1.PacketEvent) {
 
 	fmt.Fprintf(c.stdout, "%-12s %s %-5s %-10s %-8d %s\n",
 		t, actionColored, event.GetDirection(), event.GetTunnelId(), event.GetByteCount(), details)
+}
+
+func setDropTargetVerb(req *chaosv1.DropConfig, verb string) {
+	if req == nil || verb == "" {
+		return
+	}
+	v := reflect.ValueOf(req).Elem()
+	for _, fieldName := range []string{"TargetVerb", "Verb"} {
+		if f := v.FieldByName(fieldName); f.IsValid() && f.CanSet() && f.Kind() == reflect.String {
+			f.SetString(verb)
+			return
+		}
+	}
+}
+
+func getDropTargetVerb(req *chaosv1.DropConfig) string {
+	if req == nil {
+		return ""
+	}
+	v := reflect.ValueOf(req).Elem()
+	for _, fieldName := range []string{"TargetVerb", "Verb"} {
+		if f := v.FieldByName(fieldName); f.IsValid() && f.Kind() == reflect.String {
+			return f.String()
+		}
+	}
+	return ""
+}
+
+func setDisconnectGracePeriod(req *chaosv1.DisconnectCommand, d time.Duration) {
+	if req == nil || d <= 0 {
+		return
+	}
+	v := reflect.ValueOf(req).Elem()
+	for _, fieldName := range []string{"GracePeriodSec", "GraceSeconds", "GracePeriodSeconds"} {
+		if f := v.FieldByName(fieldName); f.IsValid() && f.CanSet() {
+			switch f.Kind() {
+			case reflect.Uint32, reflect.Uint64, reflect.Uint:
+				f.SetUint(uint64(d.Seconds()))
+				return
+			case reflect.Int32, reflect.Int64, reflect.Int:
+				f.SetInt(int64(d.Seconds()))
+				return
+			}
+		}
+	}
+}
+
+func parseGraceDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" || s == "0s" {
+		return 0, nil
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		if d < 0 {
+			return 0, fmt.Errorf("grace duration must be non-negative: %s", s)
+		}
+		return d, nil
+	}
+	val, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("unable to parse grace duration '%s': %w", s, err)
+	}
+	return time.Duration(val) * time.Second, nil
+}
+
+func formatGraceSeconds(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%ds", int64(d.Seconds()))
+	}
+	return d.String()
 }
 
 func parseDurationMs(s string) (uint32, error) {
