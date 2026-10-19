@@ -47,6 +47,7 @@ type DropRule struct {
 	DropRatio  float64 // 0.0 to 1.0
 	BurstCount uint32
 	Direction  Direction
+	TargetVerb string // Optional L7 protocol verb filter (e.g. "DEFEND", "DEFENSE_STACK")
 }
 
 // CorruptionRule configures random bit flipping or token mutations.
@@ -64,9 +65,10 @@ type ThrottleRule struct {
 
 // DisconnectRule forces socket termination.
 type DisconnectRule struct {
-	TCPReset  bool
-	Immediate bool
-	Direction Direction
+	TCPReset       bool
+	Immediate      bool
+	Direction      Direction
+	GracePeriodSec uint32
 }
 
 // RuleSet aggregates all active fault rules in an immutable snapshot.

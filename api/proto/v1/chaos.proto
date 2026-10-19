@@ -51,6 +51,7 @@ message DropConfig {
   double drop_ratio = 1;                 // Drop probability ratio (0.0 to 1.0)
   uint32 burst_count = 2;                // Consecutive packets to drop in a single burst (default 1)
   string direction = 3;                  // Traffic direction: "ALL", "C2S", "S2C"
+  string target_verb = 4;                // Optional L7 protocol verb to selectively drop (e.g. "DEFEND", "DEFENSE_STACK")
 }
 
 // Payload corruption and fuzzing configuration.
@@ -71,6 +72,7 @@ message DisconnectCommand {
   bool tcp_reset = 1;                    // If true, terminates with TCP RST (SetLinger(0)); else graceful FIN
   bool immediate = 2;                    // Terminate all current active connections immediately
   string direction = 3;                  // "ALL", "C2S", "S2C"
+  uint32 grace_period_sec = 4;           // Optional reconnection grace period in seconds (e.g. 120s)
 }
 
 // Empty request message.

@@ -265,6 +265,101 @@ func TestLeakOnAbruptTCPRST(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
+func TestTargetedVerbDropWithNoGoroutineLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	echoListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start echo listener: %v", err)
+	}
+	defer echoListener.Close()
+
+	var echoWg sync.WaitGroup
+	defer func() {
+		echoListener.Close()
+		echoWg.Wait()
+	}()
+
+	echoWg.Add(1)
+	go func() {
+		defer echoWg.Done()
+		for {
+			conn, err := echoListener.Accept()
+			if err != nil {
+				return
+			}
+			echoWg.Add(1)
+			go func(c net.Conn) {
+				defer echoWg.Done()
+				defer c.Close()
+				buf := make([]byte, 1024)
+				for {
+					_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+					n, rerr := c.Read(buf)
+					if n > 0 {
+						_, _ = c.Write(buf[:n])
+					}
+					if rerr != nil {
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	cfg := config.DefaultConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.TargetAddr = echoListener.Addr().String()
+
+	rules := engine.NewRuleContainer()
+	rules.Store(&engine.RuleSet{
+		Drop: &engine.DropRule{
+			DropRatio:  1.0,
+			BurstCount: 1,
+			Direction:  engine.DirectionC2S,
+			TargetVerb: "DEFEND",
+		},
+	})
+
+	dp := NewDataPlane(cfg, rules)
+	if err := dp.Start(); err != nil {
+		t.Fatalf("failed to start DataPlane: %v", err)
+	}
+
+	conn, err := net.DialTimeout("tcp", dp.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("failed to dial proxy: %v", err)
+	}
+
+	// Send DEFEND packet: should be dropped by proxy
+	if _, err := conn.Write([]byte("DEFEND RED_2\n")); err != nil {
+		t.Fatalf("failed to write DEFEND packet: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	// Send PLAY packet: should pass through proxy and echo back
+	playMsg := []byte("PLAY BLUE_7\n")
+	if _, err := conn.Write(playMsg); err != nil {
+		t.Fatalf("failed to write PLAY packet: %v", err)
+	}
+
+	reply := make([]byte, len(playMsg))
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if _, err := io.ReadFull(conn, reply); err != nil {
+		t.Fatalf("failed to read echoed PLAY packet: %v", err)
+	}
+	if !bytes.Equal(reply, playMsg) {
+		t.Fatalf("expected %q, got %q", string(playMsg), string(reply))
+	}
+
+	_ = conn.Close()
+	if err := dp.Close(); err != nil {
+		t.Fatalf("failed to close DataPlane: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+}
+
 func init() {
 	_ = bytes.NewBuffer(nil)
 }

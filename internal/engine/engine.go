@@ -24,10 +24,20 @@ func NewEngine(rules *RuleContainer) *Engine {
 	}
 }
 
-var defaultActionPass = &Action{
-	Type:   ActionPass,
-	Reason: "passed",
-}
+var (
+	defaultActionPass = &Action{
+		Type:   ActionPass,
+		Reason: "passed",
+	}
+	defaultActionDrop = &Action{
+		Type:   ActionDrop,
+		Reason: "packet_dropped",
+	}
+	defaultActionDisconnect = &Action{
+		Type:   ActionDisconnect,
+		Reason: "disconnect_command_triggered",
+	}
+)
 
 // Process evaluates all active fault interceptors sequentially for an in-flight packet.
 func (e *Engine) Process(dir Direction, payload []byte) *Action {
@@ -43,20 +53,14 @@ func (e *Engine) Process(dir Direction, payload []byte) *Action {
 	// 1. Connection Disconnect Interceptor
 	if rules.Disconnect != nil {
 		if rules.Disconnect.Direction == DirectionAll || rules.Disconnect.Direction == dir {
-			return &Action{
-				Type:   ActionDisconnect,
-				Reason: "disconnect_command_triggered",
-			}
+			return defaultActionDisconnect
 		}
 	}
 
 	// 2. Packet Drop & Burst Interceptor
 	if rules.Drop != nil {
-		if e.dropCtrl.ShouldDrop(dir, rules.Drop) {
-			return &Action{
-				Type:   ActionDrop,
-				Reason: "packet_dropped",
-			}
+		if e.dropCtrl.ShouldDropPayload(dir, rules.Drop, payload) {
+			return defaultActionDrop
 		}
 	}
 

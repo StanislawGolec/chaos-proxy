@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +49,9 @@ func NewPipe(
 ) *Pipe {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if pool == nil {
+		pool = NewBufferPool(32 * 1024)
 	}
 
 	p := &Pipe{
@@ -100,10 +102,29 @@ func (p *Pipe) Start(ctx context.Context) error {
 	return nil
 }
 
+// GetPtr retrieves a pooled byte slice pointer with zero heap allocations.
+func (bp *BufferPool) GetPtr() *[]byte {
+	bufPtr := bp.pool.Get().(*[]byte)
+	*bufPtr = (*bufPtr)[:bp.size]
+	return bufPtr
+}
+
+// PutPtr returns a pooled byte slice pointer directly to sync.Pool with zero heap allocations.
+func (bp *BufferPool) PutPtr(bufPtr *[]byte) {
+	if bufPtr == nil || cap(*bufPtr) < bp.size {
+		return
+	}
+	*bufPtr = (*bufPtr)[:bp.size]
+	bp.pool.Put(bufPtr)
+}
+
 // stream forwards bytes from src to dst in a zero-allocation loop using pooled buffers.
 func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Direction) {
-	buf := p.pool.Get()
-	defer p.pool.Put(buf)
+	bufPtr := p.pool.GetPtr()
+	defer p.pool.PutPtr(bufPtr)
+	buf := *bufPtr
+
+	dirStr := directionLabel(dir)
 
 	for {
 		select {
@@ -114,19 +135,23 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 
 		n, err := src.Read(buf)
 		if n > 0 {
-			p.totalPkts.Add(1)
-			p.totalBytes.Add(uint64(n))
+			if p.totalPkts != nil {
+				p.totalPkts.Add(1)
+			}
+			if p.totalBytes != nil {
+				p.totalBytes.Add(uint64(n))
+			}
+
+			payload := buf[:n]
 
 			var inspectRes *protocol.InspectionResult
 			if p.mode == config.ModeL7Aware {
-				inspectRes = protocol.Inspect(buf[:n])
+				inspectRes = protocol.Inspect(payload)
 				p.logger.Debug("L7 packet inspected", "direction", dir, "summary", inspectRes.Summary)
 			}
 
-			dirStr := strings.ToLower(string(dir))
-
 			// Check active fault rules if rules container is provided
-			action := p.evaluateFault(dir, buf[:n], inspectRes)
+			action := p.evaluateFault(dir, payload, inspectRes)
 			if action != nil {
 				if action.Type == engine.ActionDrop {
 					if p.metrics != nil {
@@ -158,7 +183,7 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 					if p.metrics != nil {
 						p.metrics.RecordPacket(dirStr, "corrupt", n)
 					}
-					buf = action.Mutation(buf[:n])
+					payload = action.Mutation(payload)
 				}
 			} else {
 				if p.metrics != nil {
@@ -166,8 +191,8 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 				}
 			}
 
-			// Forward data to destination socket
-			if _, werr := dst.Write(buf[:n]); werr != nil {
+			// Forward data to destination socket while keeping buf intact for pool reuse
+			if _, werr := dst.Write(payload); werr != nil {
 				if !p.isClosed() {
 					p.logger.Debug("Error writing to destination socket", "direction", dir, "error", werr)
 				}
@@ -184,6 +209,17 @@ func (p *Pipe) stream(ctx context.Context, src, dst net.Conn, dir engine.Directi
 			}
 			return
 		}
+	}
+}
+
+func directionLabel(dir engine.Direction) string {
+	switch dir {
+	case engine.DirectionC2S:
+		return "c2s"
+	case engine.DirectionS2C:
+		return "s2c"
+	default:
+		return "all"
 	}
 }
 

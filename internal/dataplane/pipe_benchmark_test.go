@@ -15,25 +15,31 @@ import (
 // BenchmarkBufferPoolGetPut measures single-threaded allocation reuse efficiency.
 func BenchmarkBufferPoolGetPut(b *testing.B) {
 	pool := NewBufferPool(32 * 1024)
+	warm := pool.GetPtr()
+	pool.PutPtr(warm)
+
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		buf := pool.Get()
-		pool.Put(buf)
+		bufPtr := pool.GetPtr()
+		pool.PutPtr(bufPtr)
 	}
 }
 
 // BenchmarkBufferPoolParallel measures buffer pool concurrency under parallel goroutines.
 func BenchmarkBufferPoolParallel(b *testing.B) {
 	pool := NewBufferPool(32 * 1024)
+	warm := pool.GetPtr()
+	pool.PutPtr(warm)
+
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			buf := pool.Get()
-			pool.Put(buf)
+			bufPtr := pool.GetPtr()
+			pool.PutPtr(bufPtr)
 		}
 	})
 }
@@ -78,6 +84,31 @@ func BenchmarkFaultEvaluationDropRule(b *testing.B) {
 	}
 }
 
+// BenchmarkFaultEvaluationTargetedVerbDrop measures L7 verb-targeted drop evaluation on the hot path.
+func BenchmarkFaultEvaluationTargetedVerbDrop(b *testing.B) {
+	container := engine.NewRuleContainer()
+	container.Store(&engine.RuleSet{
+		Drop: &engine.DropRule{
+			DropRatio:  1.0,
+			BurstCount: 1,
+			Direction:  engine.DirectionC2S,
+			TargetVerb: "DEFEND",
+		},
+	})
+	eng := engine.NewEngine(container)
+	passPayload := []byte("PLAY RED_7\n")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		act := eng.Process(engine.DirectionC2S, passPayload)
+		if act.Type != engine.ActionPass {
+			b.Fatal("expected non-matching verb to pass")
+		}
+	}
+}
+
 // BenchmarkPipeStreamingThroughput_4KB measures end-to-end socket throughput across Pipe with 4KB payloads.
 func BenchmarkPipeStreamingThroughput_4KB(b *testing.B) {
 	benchmarkPipeStreaming(b, 4*1024)
@@ -96,6 +127,8 @@ func benchmarkPipeStreaming(b *testing.B, chunkSize int) {
 	}
 	defer targetListener.Close()
 
+	warmedUp := make(chan struct{}, 1)
+
 	// Upstream target discard sink
 	go func() {
 		for {
@@ -106,8 +139,16 @@ func benchmarkPipeStreaming(b *testing.B, chunkSize int) {
 			go func(c net.Conn) {
 				defer c.Close()
 				sink := make([]byte, 64*1024)
+				first := true
 				for {
-					_, rerr := c.Read(sink)
+					n, rerr := c.Read(sink)
+					if n > 0 && first {
+						first = false
+						select {
+						case warmedUp <- struct{}{}:
+						default:
+						}
+					}
 					if rerr != nil {
 						return
 					}
@@ -129,6 +170,11 @@ func benchmarkPipeStreaming(b *testing.B, chunkSize int) {
 	defer clientUserSide.Close()
 
 	pool := NewBufferPool(32 * 1024)
+	// Pre-warm two buffers for bidirectional C2S and S2C stream goroutines
+	b1, b2 := pool.GetPtr(), pool.GetPtr()
+	pool.PutPtr(b1)
+	pool.PutPtr(b2)
+
 	rules := engine.NewRuleContainer()
 	eng := engine.NewEngine(rules)
 	var pkts atomic.Uint64
@@ -145,6 +191,13 @@ func benchmarkPipeStreaming(b *testing.B, chunkSize int) {
 	}()
 
 	payload := make([]byte, chunkSize)
+
+	// Warm up pipe and sink buffer allocation before starting benchmark timer
+	if _, werr := clientUserSide.Write(payload); werr != nil {
+		b.Fatalf("warmup write failed: %v", werr)
+	}
+	<-warmedUp
+
 	b.SetBytes(int64(chunkSize))
 	b.ReportAllocs()
 	b.ResetTimer()
