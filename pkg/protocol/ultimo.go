@@ -145,27 +145,35 @@ const (
 	CmdUltimo            UltimoCommand = "ULTIMO"
 	CmdCatchUltimo       UltimoCommand = "CATCH_ULTIMO"
 	CmdChallengeWildFour UltimoCommand = "CHALLENGE_WILD_FOUR"
+	CmdListRooms         UltimoCommand = "LIST_ROOMS"
+	CmdTransferOwnership UltimoCommand = "TRANSFER_OWNERSHIP"
+	CmdKick              UltimoCommand = "KICK"
+	CmdDefend            UltimoCommand = "DEFEND"
 )
 
 // UltimoEvent represents server-to-client events in the authoritative Ultimo protocol.
 type UltimoEvent string
 
 const (
-	EventWelcome         UltimoEvent = "WELCOME"
-	EventRoomStatus      UltimoEvent = "ROOM_STATUS"
-	EventHandUpdate      UltimoEvent = "HAND_UPDATE"
-	EventTopCard         UltimoEvent = "TOP_CARD"
-	EventTurnAnnounced   UltimoEvent = "TURN_ANNOUNCED"
-	EventOpponentUpdate  UltimoEvent = "OPPONENT_UPDATE"
-	EventDrawResult      UltimoEvent = "DRAW_RESULT"
-	EventGameOver        UltimoEvent = "GAME_OVER"
-	EventError           UltimoEvent = "ERROR"
-	EventPong            UltimoEvent = "PONG"
-	EventServerShutdown  UltimoEvent = "SERVER_SHUTDOWN"
-	EventUltimoDeclared  UltimoEvent = "ULTIMO_DECLARED"
-	EventUltimoPenalty   UltimoEvent = "ULTIMO_PENALTY"
-	EventChallengeResult UltimoEvent = "CHALLENGE_RESULT"
-	EventRoundOver       UltimoEvent = "ROUND_OVER"
+	EventWelcome           UltimoEvent = "WELCOME"
+	EventRoomStatus        UltimoEvent = "ROOM_STATUS"
+	EventHandUpdate        UltimoEvent = "HAND_UPDATE"
+	EventTopCard           UltimoEvent = "TOP_CARD"
+	EventTurnAnnounced     UltimoEvent = "TURN_ANNOUNCED"
+	EventOpponentUpdate    UltimoEvent = "OPPONENT_UPDATE"
+	EventDrawResult        UltimoEvent = "DRAW_RESULT"
+	EventGameOver          UltimoEvent = "GAME_OVER"
+	EventError             UltimoEvent = "ERROR"
+	EventPong              UltimoEvent = "PONG"
+	EventServerShutdown    UltimoEvent = "SERVER_SHUTDOWN"
+	EventUltimoDeclared    UltimoEvent = "ULTIMO_DECLARED"
+	EventUltimoPenalty     UltimoEvent = "ULTIMO_PENALTY"
+	EventChallengeResult   UltimoEvent = "CHALLENGE_RESULT"
+	EventRoundOver         UltimoEvent = "ROUND_OVER"
+	EventRoomList          UltimoEvent = "ROOM_LIST"
+	EventDefenseStack      UltimoEvent = "DEFENSE_STACK"
+	EventPodiumStandings   UltimoEvent = "PODIUM_STANDINGS"
+	EventReconnectSnapshot UltimoEvent = "RECONNECT_SNAPSHOT"
 )
 
 // MessageCategory distinguishes commands originating from clients vs events from the game server.
@@ -204,7 +212,8 @@ func ParseUltimoMessage(line string) (*UltimoMessage, error) {
 	category := CategoryUnknown
 	switch UltimoCommand(verb) {
 	case CmdJoin, CmdStart, CmdPlay, CmdDraw, CmdPass, CmdPing, CmdChat,
-		CmdUltimo, CmdCatchUltimo, CmdChallengeWildFour:
+		CmdUltimo, CmdCatchUltimo, CmdChallengeWildFour,
+		CmdListRooms, CmdTransferOwnership, CmdKick, CmdDefend:
 		category = CategoryCommand
 	}
 
@@ -214,7 +223,8 @@ func ParseUltimoMessage(line string) (*UltimoMessage, error) {
 			EventTurnAnnounced, EventOpponentUpdate, EventDrawResult,
 			EventGameOver, EventError, EventPong, EventServerShutdown,
 			EventUltimoDeclared, EventUltimoPenalty, EventChallengeResult,
-			EventRoundOver:
+			EventRoundOver, EventRoomList, EventDefenseStack,
+			EventPodiumStandings, EventReconnectSnapshot:
 			category = CategoryEvent
 		}
 	}
