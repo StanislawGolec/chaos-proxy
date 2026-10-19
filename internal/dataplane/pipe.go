@@ -80,6 +80,13 @@ func (p *Pipe) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	ctxWatcherDone := make(chan struct{})
+	go func() {
+		defer close(ctxWatcherDone)
+		<-ctx.Done()
+		p.Close()
+	}()
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -98,7 +105,7 @@ func (p *Pipe) Start(ctx context.Context) error {
 	}()
 
 	wg.Wait()
-	p.Close()
+	<-ctxWatcherDone
 	return nil
 }
 
