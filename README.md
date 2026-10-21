@@ -1,7 +1,7 @@
-# Go-Chaos-Proxy: High-Throughput L4/L7 Fault Injection Engine
+# Chaos-Proxy: High-Throughput L4/L7 Fault Injection Engine
 
 [![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://go.dev/)
-[![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen.svg)](https://github.com/StanislawGolec/Go-Chaos-Proxy)
+[![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen.svg)](https://github.com/StanislawGolec/chaos-proxy)
 [![Throughput](https://img.shields.io/badge/Throughput-2.1%20GB%2Fs-blueviolet.svg)](#empirical-benchmark-performance)
 [![Hot Path](https://img.shields.io/badge/Hot%20Path-Zero%20Allocation-success.svg)](#empirical-benchmark-performance)
 [![Control Plane](https://img.shields.io/badge/Control%20Plane-gRPC%20%2F%20Protobuf-00a4d3.svg)](https://grpc.io/)
