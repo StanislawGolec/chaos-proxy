@@ -254,3 +254,9 @@ kubectl apply -f deployments/k8s/deployment.yaml
 kubectl apply -f deployments/k8s/service.yaml
 kubectl apply -f deployments/k8s/hpa.yaml
 ```
+
+---
+
+## Development
+
+Developed with the assistance of agentic AI workflows and LLMs.
